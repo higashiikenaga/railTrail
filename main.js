@@ -3681,6 +3681,75 @@
           };
         }
 
+        function forcePlayerKinghood() {
+          const savedResult = successionResult;
+          successionResult = { winnerId: 'player', playerRank: 1 };
+          applySuccessionRoles();
+          successionResult = savedResult;
+          adjustGlobalTrust('player', 20);
+          markWorldDirty();
+          updateControlButtons();
+          if (tileInfoEl) {
+            tileInfoEl.textContent = 'クーデターが成功し、あなたが新たな王となった。';
+          }
+        }
+
+        const CIVIL_WAR_EVENT = {
+          id: 'civil-war',
+          title: '内戦の危機',
+          description: '国内の勢力がそれぞれ正統性を振りかざし、民の間で武装蜂起が始まった。',
+          choices: [
+            {
+              label: '忠誠軍を投入',
+              description: '皇都から重装歩兵と騎兵を派遣し、混乱を封じる。',
+              handler: (ctx) => {
+                ctx.adjustGlobalFunds(-180);
+                ctx.pickCities(2).forEach(c => ctx.adjustCityStat(c.id, 'military', 18));
+                ctx.pickCities(2).forEach(c => ctx.adjustCityStat(c.id, 'stability', -5));
+              },
+            },
+            {
+              label: '自治制を尊重',
+              description: '軍事力より講和と自治を重視する。',
+              handler: (ctx) => {
+                ctx.adjustGlobalFunds(-60);
+                ctx.forEachCity(c => {
+                  ctx.adjustCityStat(c.id, 'stability', 5);
+                });
+              },
+            },
+          ],
+        };
+        const FOREIGN_WAR_EVENT = {
+          id: 'foreign-war',
+          title: '戦争の兆候',
+          description: '隣国が国境を越え、正式に戦端を開いた。兵站と国家の名誉が問われる。',
+        const FOREIGN_WAR_EVENT = {
+          id: 'foreign-war',
+          title: '戦争の兆候',
+          description: '隣国が国境を越え、正式に戦端を開いた。兵站と国家の名誉が問われる。',
+          choices: [
+            {
+              label: '前線を押し上げる',
+              description: '敵地に深入りし、勢いを見せる。',
+              handler: (ctx) => {
+                ctx.adjustGlobalFunds(-220);
+                ctx.pickCities(2).forEach(c => ctx.adjustCityStat(c.id, 'military', 20));
+                ctx.pickCities(2).forEach(c => ctx.adjustCityStat(c.id, 'stability', -6));
+              },
+              nextEvent: CIVIL_WAR_EVENT,
+            },
+            {
+              label: '防衛に徹する',
+              description: '城塞防衛と連携を重視し、領土を固める。',
+              handler: (ctx) => {
+                ctx.adjustGlobalFunds(-120);
+                ctx.pickCities(3).forEach(c => ctx.adjustCityStat(c.id, 'military', 12));
+                ctx.pickCities(2).forEach(c => ctx.adjustCityStat(c.id, 'stability', 4));
+              },
+            },
+          ],
+        };
         const WORLD_EVENTS = [
           {
             id: 'harvest_fair',
@@ -3783,9 +3852,84 @@
             title: '難民の到来',
             description: '隣国の紛争から逃れた人々が国境に押し寄せている。労働力となるか、治安の脅威となるか。',
             choices: [
-              { label: '受け入れ', description: '人道支援を行い、都市へ定住させる。', handler: (ctx) => { ctx.adjustGlobalFunds(-120); ctx.pickCities(1).forEach(c => { c.pop += 600; ctx.adjustCityStat(c.id, 'stability', -5); }); } },
-              { label: '国境封鎖', description: '入国を拒否し、国内の安定を守る。', handler: (ctx) => { ctx.pickCities(1).forEach(c => ctx.adjustCityStat(c.id, 'military', 5)); } },
-            ]
+              {
+                label: '受け入れ',
+                description: '人道支援を行い、都市へ定住させる。',
+                handler: (ctx) => {
+                  const selectedCity = ctx.pickCities(1)[0];
+                  const campCityId = selectedCity ? selectedCity.id : null;
+                  if (selectedCity) {
+                    ctx.adjustGlobalFunds(-120);
+                    ctx.adjustCityStat(campCityId, 'stability', -5);
+                    ctx.adjustCityPopulation(campCityId, 1200);
+                  } else {
+                    ctx.adjustGlobalFunds(-120);
+                  }
+                  if (campCityId != null) {
+                    ctx.nextEvent = {
+                      id: `refugee-camp-${campCityId}`,
+                      title: '難民キャンプの開設',
+                      description: '受け入れた人々のため、一時的な難民キャンプを構築する必要が生まれた。',
+                      choices: [
+                        {
+                          label: '仮設施設を整備',
+                          description: '専用のキャンプで受け入れ、人口を抑制する。',
+                          handler: () => {
+                            const city = cities[campCityId];
+                            if (city) {
+                              city.pop = Math.round((city.pop || 0) + 800);
+                              ctx.adjustCityStat(campCityId, 'stability', 4);
+                            }
+                          },
+                        },
+                        {
+                          label: '定住支援に切り替え',
+                          description: '都市に吸収し、インフラを整える。',
+                          handler: () => {
+                            ctx.adjustCityStat(campCityId, 'stability', 6);
+                          },
+                        },
+                      ],
+                    };
+                  }
+                },
+                nextEvent: null, // will be injected via ctx.nextEvent
+              },
+              {
+                label: '国境封鎖',
+                description: '入国を拒否し、国内の安定を守る。',
+                handler: (ctx) => {
+                  ctx.pickCities(1).forEach(c => ctx.adjustCityStat(c.id, 'military', 5));
+                },
+              },
+            ],
+          },
+          {
+            id: 'player_coup',
+            enabled: () => roles.player !== 'king',
+            title: 'クーデターの機運',
+            description: '周辺の役人たちが民衆を扇動し、王城での血みどろの政変が囁かれている。自らの手で王座を掴むのか、それとも秩序を守るのか。',
+            choices: [
+              {
+                label: '動乱を避ける',
+                description: '静観し、他の勢力が先に動くのを待つ。',
+                handler: (ctx) => {
+                  ctx.adjustActorAuthority('council', 5);
+                  ctx.adjustGlobalFunds(-30);
+                },
+              },
+              {
+                label: '兵を率いて進軍',
+                description: '忠誠心の高い部隊を集めて王城へ突入する。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-140);
+                  ctx.pickCities(2).forEach(c => ctx.adjustCityStat(c.id, 'military', 18));
+                  ctx.adjustActorAuthority('marshal', -12);
+                  forcePlayerKinghood();
+                },
+                nextEvent: CIVIL_WAR_EVENT,
+              },
+            ],
           },
         ];
 
@@ -3833,9 +3977,10 @@
                 updateHudStats();
                 closeStoryOverlay(overlayId);
                 
-                if (choice.nextEvent) {
+                const next = choice.nextEvent || ctx.nextEvent;
+                if (next) {
                   setTimeout(() => {
-                    applyWorldEvent(choice.nextEvent);
+                    applyWorldEvent(next);
                   }, 500);
                 }
               });
@@ -3864,7 +4009,9 @@
         function maybeTriggerWorldEvent() {
           if (!successionResult) return;
           if (Math.random() > 0.08) return;
-          const event = WORLD_EVENTS[Math.floor(Math.random() * WORLD_EVENTS.length)];
+          const available = WORLD_EVENTS.filter(evt => !evt.enabled || evt.enabled());
+          if (!available.length) return;
+          const event = available[Math.floor(Math.random() * available.length)];
           applyWorldEvent(event);
         }
 
@@ -4069,6 +4216,10 @@
         openCityRenameOverlay();
         break;
       case 'abdicate':
+        if (roles.player !== 'king') {
+          if (tileInfoEl) tileInfoEl.textContent = '王位を譲れるのは現王だけです。';
+          break;
+        }
         openAbdicationOverlay();
         break;
         case 'time-stop':
@@ -4791,6 +4942,7 @@
       }
       const option = select.options[select.selectedIndex];
       if (option) option.textContent = newName;
+      closeStoryOverlay(overlayId);
     });
     container.appendChild(select);
     container.appendChild(nameInput);
@@ -4799,7 +4951,7 @@
       id: overlayId,
       title: '都市改名',
       body: container,
-      buttons: [],
+      buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
       mobileTitle: '都市改名',
     });
   }
