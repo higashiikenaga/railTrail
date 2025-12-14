@@ -3208,22 +3208,25 @@
           currentInstitutes.forEach(entry => {
             const city = cities[entry.cityId];
             const row = document.createElement('div');
-                          row.textContent = `${fromLabel} → ${toLabel}：需要 ${line.demand || 1}本`;
-              row.style.fontSize = '12px';
-              row.style.color = '#d8dee9';
-              row.style.background = 'rgba(255,255,255,0.04)';
-              row.style.borderRadius = '5px';
-              row.style.padding = '4px 6px';
+            const cityName = city && city.name ? city.name : `City ${entry.cityId}`;
+            const progress = Math.round(entry.progress || 0);
+            const breakthroughs = entry.breakthroughs || 0;
+            row.textContent = `${cityName} - Progress ${progress}% / Breakthroughs ${breakthroughs}`;
+            row.style.fontSize = '12px';
+            row.style.color = '#d8dee9';
+            row.style.background = 'rgba(255,255,255,0.04)';
+            row.style.borderRadius = '5px';
+            row.style.padding = '4px 6px';
             instituteList.appendChild(row);
           });
         } else {
           const empty = document.createElement('div');
-            empty.textContent = '設置された研究所はありません';
-            empty.style.fontSize = '12px';
-            empty.style.opacity = '0.8';
-            instituteList.appendChild(empty);
-          }
-          section.appendChild(instituteList);
+          empty.textContent = 'No research institutes configured yet.';
+          empty.style.fontSize = '12px';
+          empty.style.opacity = '0.8';
+          instituteList.appendChild(empty);
+        }
+        section.appendChild(instituteList);
 
           const cityLabel = document.createElement('div');
           cityLabel.style.fontSize = '12px';
@@ -3720,10 +3723,6 @@
             },
           ],
         };
-        const FOREIGN_WAR_EVENT = {
-          id: 'foreign-war',
-          title: '戦争の兆候',
-          description: '隣国が国境を越え、正式に戦端を開いた。兵站と国家の名誉が問われる。',
         const FOREIGN_WAR_EVENT = {
           id: 'foreign-war',
           title: '戦争の兆候',
