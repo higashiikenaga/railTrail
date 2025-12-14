@@ -1518,7 +1518,7 @@
             <p style="margin:0 0 4px;">${bodyText}</p>
             <p style="font-size:11px; color:#555;">旧王都新聞・特別号</p>
           </div>`;
-        const aiEntries = aiActionLog.filter(log => Number.isFinite(log.turn) && Math.floor(log.turn) === Math.floor(turn));
+        const aiEntries = aiActionLog.filter(log => Number.isFinite(log.turn) && Math.floor(log.turn) === Math.floor(currentTurn));
         if (aiEntries.length) {
           const aiHeader = document.createElement('div');
           aiHeader.style.fontSize = '11px';
@@ -4062,9 +4062,15 @@
         case 'load-world':
           importWorldFromJson('map');
           break;
-        case 'nation-overview':
-          openNationOverviewOverlay();
-          break;
+      case 'nation-overview':
+        openNationOverviewOverlay();
+        break;
+      case 'rename-city':
+        openCityRenameOverlay();
+        break;
+      case 'abdicate':
+        openAbdicationOverlay();
+        break;
         case 'time-stop':
           timeControl.speed = 0;
           break;
@@ -4308,6 +4314,12 @@
         break;
       case 'load-world':
         importWorldFromJson('map');
+        break;
+      case 'rename-city':
+        openCityRenameOverlay();
+        break;
+      case 'abdicate':
+        openAbdicationOverlay();
         break;
       case 'return-title':
         hideGameOver();
@@ -4712,6 +4724,164 @@
     cityListVisible = false;
     updateControlButtons();
     removeMobileOverlayEntry('mobile-city-list');
+  }
+
+  function openCityRenameOverlay() {
+    if (appState !== 'map' || !worldReady || !storyOverlayRoot) return;
+    const overlayId = 'city-rename-overlay';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const availableCities = cities.filter(city => city && typeof city.id !== 'undefined');
+    if (!availableCities.length) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const description = document.createElement('div');
+    description.textContent = '改名したい都市を選び、新しい名称を入力してから「改名」を押してください。';
+    description.style.fontSize = '12px';
+    description.style.opacity = '0.7';
+    container.appendChild(description);
+    const select = document.createElement('select');
+    select.style.padding = '8px';
+    select.style.borderRadius = '8px';
+    select.style.border = '1px solid rgba(0,0,0,0.15)';
+    availableCities.forEach(city => {
+      const option = document.createElement('option');
+      option.value = String(city.id);
+      option.textContent = city.name || `都市${city.id}`;
+      select.appendChild(option);
+    });
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = '新しい都市名';
+    nameInput.value = availableCities[0].name || '';
+    nameInput.style.padding = '8px';
+    nameInput.style.borderRadius = '8px';
+    nameInput.style.border = '1px solid rgba(0,0,0,0.15)';
+    function syncInput() {
+      const cityId = select.value;
+      const city = cities.find(c => String(c.id) === cityId);
+      if (city) {
+        nameInput.value = city.name || '';
+      }
+    }
+    select.addEventListener('change', syncInput);
+    const renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'btn';
+    renameBtn.textContent = '改名';
+    renameBtn.addEventListener('click', () => {
+      const cityId = select.value;
+      const city = cities.find(c => String(c.id) === cityId);
+      if (!city) return;
+      const newName = (nameInput.value || '').trim();
+      if (!newName) {
+        if (tileInfoEl) {
+          tileInfoEl.textContent = '名前を入力してください。';
+        }
+        nameInput.focus();
+        return;
+      }
+      const oldName = city.name || `都市${city.id}`;
+      city.name = newName;
+      markWorldDirty();
+      updateHudStats();
+      if (tileInfoEl) {
+        tileInfoEl.textContent = `${oldName} を ${newName} に改名しました。`;
+      }
+      const option = select.options[select.selectedIndex];
+      if (option) option.textContent = newName;
+    });
+    container.appendChild(select);
+    container.appendChild(nameInput);
+    container.appendChild(renameBtn);
+    showStoryOverlay({
+      id: overlayId,
+      title: '都市改名',
+      body: container,
+      buttons: [],
+      mobileTitle: '都市改名',
+    });
+  }
+
+  function performAbdication(targetId, overlayId) {
+    if (roles.player !== 'king') {
+      if (tileInfoEl) tileInfoEl.textContent = '王位を譲れるのは現王だけです。';
+      return;
+    }
+    if (!targetId || targetId === 'player') return;
+    const targetCharacter = getCandidateName(targetId);
+    const targetRole = roles[targetId] || 'advisor';
+    roles[targetId] = 'king';
+    roles.player = targetRole;
+    ['player','marshal','princess','council'].forEach(id => {
+      if (characters[id]) {
+        characters[id].role = roles[id] || null;
+      }
+    });
+    adjustGlobalTrust(targetId, 100);
+    initKingAI(targetId, 1);
+    markWorldDirty();
+    updateControlButtons();
+    closeStoryOverlay(overlayId);
+    showStoryOverlay({
+      title: '王位譲渡完了',
+      body: `${targetCharacter} が新王に就きました。あなたは ${roleLabel(roles.player)} となりました。`,
+      buttons: [],
+      mobileTitle: '王位譲渡完了',
+    });
+  }
+
+  function openAbdicationOverlay() {
+    if (appState !== 'map' || !worldReady || !storyOverlayRoot) return;
+    const overlayId = 'abdication-overlay';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const description = document.createElement('div');
+    description.textContent = '王位をNPCに譲り、自らはその役職を引き継ぎます。忠誠心の高い新王はあなたに信頼を寄せます。';
+    description.style.fontSize = '12px';
+    description.style.opacity = '0.7';
+    const list = document.createElement('div');
+    list.style.display = 'flex';
+    list.style.flexDirection = 'column';
+    list.style.gap = '8px';
+    const candidates = ['marshal', 'princess', 'council'];
+    candidates.forEach(id => {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.background = 'rgba(255,255,255,0.04)';
+      row.style.border = '1px solid rgba(255,255,255,0.1)';
+      row.style.borderRadius = '8px';
+      row.style.padding = '6px 10px';
+      const name = document.createElement('div');
+      name.style.flex = '1';
+      name.style.fontSize = '13px';
+      const charName = getCandidateName(id);
+      const currentRole = roleLabel(roles[id]) || '役職未定';
+      name.innerHTML = `<strong>${charName}</strong><br><span style="font-size:11px; opacity:0.7;">${currentRole}</span>`;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn';
+      button.textContent = '譲る';
+      button.addEventListener('click', () => performAbdication(id, overlayId));
+      row.appendChild(name);
+      row.appendChild(button);
+      list.appendChild(row);
+    });
+    container.appendChild(description);
+    container.appendChild(list);
+    showStoryOverlay({
+      id: overlayId,
+      title: '王位譲渡',
+      body: container,
+      buttons: [],
+      mobileTitle: '王位譲渡',
+    });
   }
 
 
