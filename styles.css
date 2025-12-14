@@ -238,6 +238,8 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     display:flex;
     flex-direction:column;
     gap:16px;
+    max-height:calc(100vh - 48px);
+    overflow:auto;
   }
   .mobile-modal-body {
     font-size:13px;
@@ -427,7 +429,7 @@ body.mobile-ui-enabled .win98-window.news-overlay {
 .slot-entry:hover:not(:disabled) { background:linear-gradient(135deg,#2c3950,#34486a); transform:translateY(-1px); }
 /* story mode - Win98 style windows */
 #story-overlay-root { position:fixed; inset:0; pointer-events:none; z-index:60; }
-.win98-window { position:absolute; min-width:260px; max-width:420px; background:#d4d4d4; color:#111; font-size:13px; box-sizing:border-box; border-top:2px solid #f5f5f5; border-left:2px solid #f5f5f5; border-right:2px solid #555; border-bottom:2px solid #555; pointer-events:auto; border-radius:12px; box-shadow:0 18px 42px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 2px rgba(120,180,255,0.6); overflow:hidden; backdrop-filter:blur(6px); }
+.win98-window { position:absolute; min-width:260px; max-width:420px; background:#d4d4d4; color:#111; font-size:13px; box-sizing:border-box; border-top:2px solid #f5f5f5; border-left:2px solid #f5f5f5; border-right:2px solid #555; border-bottom:2px solid #555; pointer-events:auto; border-radius:12px; box-shadow:0 18px 42px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.06), 0 0 0 2px rgba(120,180,255,0.6); overflow:auto; max-height:calc(100vh - 40px); backdrop-filter:blur(6px); }
 .win98-titlebar { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 10px; background:linear-gradient(135deg,#1b2a4a,#304b80); color:#f5f7ff; font-weight:bold; letter-spacing:0.02em; }
 .win98-titlebar .win98-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
 .win98-titlebar .win98-close { width:22px; height:22px; border:none; border-radius:6px; background:rgba(220,80,80,0.95); display:flex; align-items:center; justify-content:center; font-size:13px; cursor:pointer; color:#fff; box-shadow:0 0 0 1px rgba(255,255,255,0.18), 0 8px 16px rgba(0,0,0,0.5); transition:background .12s ease, transform .12s ease, box-shadow .12s ease; }

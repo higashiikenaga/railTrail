@@ -963,9 +963,17 @@
                 ));
               }
               if (!line) {
-                line = { cityAId, cityBId, demand: 0 };
+                line = {
+                  id: `rail-line-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                  cityAId,
+                  cityBId,
+                  demand: 0,
+                };
                 lines.push(line);
+              } else if (!line.id) {
+                line.id = `rail-line-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
               }
+                lines.push(line);
               line.demand = Math.min(6, (line.demand || 0) + demandLevel);
               if (path) {
                 line.path = path;
@@ -2662,6 +2670,7 @@
         deactivateRailMode();
         railOverlayContext = null;
       }
+      railScheduleStateRefresher = null;
     }
 
   function openStorySetupWindow(options = {}) {
@@ -3296,19 +3305,24 @@
           return state.horsecarResearch;
         }
 
-        function getHorsecarLines() {
-          const state = getWorldState();
-          if (!state.horsecarLines) state.horsecarLines = [];
-          return state.horsecarLines;
-        }
+function getHorsecarLines() {
+  const state = getWorldState();
+  if (!state.horsecarLines) state.horsecarLines = [];
+  state.horsecarLines.forEach(line => {
+    if (line && !line.id) {
+      line.id = `rail-line-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    }
+  });
+  return state.horsecarLines;
+}
 
-        function renderHorsecarLineList() {
+function renderHorsecarLineList() {
             const wrapper = document.createElement('div');
             wrapper.style.display = 'flex';
             wrapper.style.flexDirection = 'column';
             wrapper.style.gap = '4px';
             wrapper.style.fontSize = '12px';
-            wrapper.style.maxHeight = '140px';
+            wrapper.style.maxHeight = '160px';
             wrapper.style.overflowY = 'auto';
             const label = document.createElement('strong');
             label.textContent = '敷設路線';
@@ -3324,28 +3338,373 @@
                 return wrapper;
             }
             lines.forEach(line => {
-                const cityA = cities[line.cityAId];
-                const cityB = cities[line.cityBId];
-                const fromPoint = Array.isArray(line.path) && line.path.length ? line.path[0] : null;
-                const toPoint = Array.isArray(line.path) && line.path.length ? line.path[line.path.length - 1] : null;
-                const fromLabel = cityA
-                    ? cityA.name
-                    : fromPoint
-                        ? `(${fromPoint.x},${fromPoint.y})`
-                        : '始点未定';
-                const toLabel = cityB
-                    ? cityB.name
-                    : toPoint
-                        ? `(${toPoint.x},${toPoint.y})`
-                        : '終点未定';
                 const row = document.createElement('div');
-                row.textContent = `${fromLabel} → ${toLabel}：需要 ${line.demand || 1}本`;
+                row.style.display = 'flex';
+                row.style.flexDirection = 'column';
+                row.style.gap = '4px';
                 row.style.background = 'rgba(255,255,255,0.04)';
-                row.style.padding = '4px 6px';
-                row.style.borderRadius = '5px';
+                row.style.border = '1px solid rgba(255,255,255,0.1)';
+                row.style.borderRadius = '8px';
+                row.style.padding = '6px 8px';
+                const titleRow = document.createElement('div');
+                titleRow.style.display = 'flex';
+                titleRow.style.justifyContent = 'space-between';
+                titleRow.style.alignItems = 'center';
+                const title = document.createElement('div');
+                title.textContent = getLineLabel(line);
+                title.style.fontSize = '12px';
+                title.style.fontWeight = '600';
+                titleRow.appendChild(title);
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn';
+                removeBtn.textContent = '路線を廃止';
+                removeBtn.addEventListener('click', () => {
+                  if (removeHorsecarLine(line.id)) {
+                    updateRailOverlayList();
+                    updateRailOverlayStatus('路線を廃止しました');
+                    if (tileInfoEl) tileInfoEl.textContent = '路線を廃止しました';
+                    if (typeof railScheduleStateRefresher === 'function') {
+                      railScheduleStateRefresher();
+                    }
+                    render();
+                  }
+                });
+                titleRow.appendChild(removeBtn);
+                const meta = document.createElement('div');
+                meta.style.fontSize = '11px';
+                meta.style.opacity = '0.8';
+                meta.textContent = `需要 ${line.demand || 1}本`;
+                row.appendChild(titleRow);
+                row.appendChild(meta);
                 wrapper.appendChild(row);
             });
             return wrapper;
+        }
+
+        function buildRailScheduleList(onUpdate) {
+          const wrapper = document.createElement('div');
+          wrapper.style.display = 'flex';
+          wrapper.style.flexDirection = 'column';
+          wrapper.style.gap = '6px';
+          const schedules = getRailSchedules();
+          if (!schedules.length) {
+            const empty = document.createElement('div');
+            empty.textContent = 'まだ鉄道ダイヤは設定されていません';
+            empty.style.fontSize = '12px';
+            empty.style.opacity = '0.7';
+            wrapper.appendChild(empty);
+            return wrapper;
+          }
+          schedules.forEach(entry => {
+            const line = getLineById(entry.lineId);
+            const row = document.createElement('div');
+            row.style.border = '1px solid rgba(255,255,255,0.12)';
+            row.style.borderRadius = '6px';
+            row.style.padding = '6px';
+            row.style.background = 'rgba(255,255,255,0.03)';
+            const title = document.createElement('div');
+            title.textContent = line ? getLineLabel(line) : `${getCityDisplayName(entry.originId)} → ${getCityDisplayName(entry.destinationId)}`;
+            title.style.fontSize = '12px';
+            title.style.fontWeight = '600';
+            row.appendChild(title);
+            const meta = document.createElement('div');
+            meta.textContent = `タイプ ${getTrainTypeLabel(entry.trainType)} / 輸送 ${entry.capacity || 0} / 頻度 ${entry.frequency || 1}`;
+            meta.style.fontSize = '11px';
+            meta.style.opacity = '0.8';
+            row.appendChild(meta);
+            const rawStops = Array.isArray(entry.stops) ? entry.stops : [];
+            const formattedStops = rawStops
+              .map(stop => {
+                const cityId = stop && typeof stop === 'object' ? stop.cityId : stop;
+                const cityName = getCityDisplayName(cityId);
+                if (!cityName) return null;
+                const loopText = (stop && typeof stop === 'object' && stop.passingLoop) ? '（行き違いあり）' : '';
+                return `${cityName}${loopText}`;
+              })
+              .filter(Boolean)
+              .join(' / ');
+            const stopsRow = document.createElement('div');
+            stopsRow.textContent = `中間駅: ${formattedStops || '直通'}`;
+            stopsRow.style.fontSize = '11px';
+            stopsRow.style.opacity = '0.8';
+            row.appendChild(stopsRow);
+            const economy = estimateScheduleEconomy(entry);
+            const profitLabel = economy.profit >= 0 ? `黒字 ${economy.profit}` : `赤字 ${economy.profit}`;
+            const econRow = document.createElement('div');
+            econRow.textContent = `乗客見込 ${economy.passengers}人 / 収入 ${economy.revenue} / 維持 ${economy.maintenance} / ${profitLabel}`;
+            econRow.style.fontSize = '11px';
+            econRow.style.opacity = '0.8';
+            row.appendChild(econRow);
+            const buttonRow = document.createElement('div');
+            buttonRow.style.display = 'flex';
+            buttonRow.style.gap = '6px';
+            buttonRow.style.marginTop = '4px';
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn';
+            removeBtn.textContent = '削除';
+            removeBtn.addEventListener('click', () => {
+              if (removeRailSchedule(entry.id) && typeof onUpdate === 'function') {
+                onUpdate();
+              }
+            });
+            buttonRow.appendChild(removeBtn);
+            row.appendChild(buttonRow);
+            wrapper.appendChild(row);
+          });
+          return wrapper;
+        }
+
+        function openRailScheduleOverlay() {
+          const research = ensureHorsecarResearch();
+          if (!research.completed) return;
+          const overlayId = 'rail-schedule-overlay';
+          if (overlayStack.find(o => o.id === overlayId)) return;
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '12px';
+          container.style.color = '#111';
+          const heading = document.createElement('strong');
+          heading.textContent = '鉄道ダイヤの制定';
+          container.appendChild(heading);
+          const intro = document.createElement('div');
+          intro.textContent = '運ぶ都市・速度・中間駅を決めて、国家の鉄道を動かしましょう';
+          intro.style.fontSize = '12px';
+          intro.style.opacity = '0.8';
+          container.appendChild(intro);
+          const scheduleListWrapper = document.createElement('div');
+          const refreshSchedules = () => {
+            scheduleListWrapper.innerHTML = '';
+            scheduleListWrapper.appendChild(buildRailScheduleList(refreshSchedules));
+          };
+          refreshSchedules();
+          container.appendChild(scheduleListWrapper);
+          const form = document.createElement('div');
+          form.style.display = 'flex';
+          form.style.flexDirection = 'column';
+          form.style.gap = '8px';
+          const lineLabel = document.createElement('div');
+          lineLabel.textContent = '敷設済みの路線からダイヤを決定';
+          lineLabel.style.fontSize = '11px';
+          lineLabel.style.opacity = '0.8';
+          form.appendChild(lineLabel);
+          const lineSelect = document.createElement('select');
+          lineSelect.style.padding = '6px';
+          lineSelect.style.borderRadius = '6px';
+          lineSelect.style.border = '1px solid rgba(255,255,255,0.15)';
+          form.appendChild(lineSelect);
+          const emptyLineNote = document.createElement('div');
+          emptyLineNote.textContent = 'まず馬車鉄道を敷設してください';
+          emptyLineNote.style.fontSize = '11px';
+          emptyLineNote.style.opacity = '0.7';
+          emptyLineNote.style.display = 'none';
+          form.appendChild(emptyLineNote);
+          const lines = getHorsecarLines();
+          const refreshLineOptions = () => {
+            lineSelect.innerHTML = '';
+            if (!lines.length) {
+              lineSelect.disabled = true;
+              emptyLineNote.style.display = 'block';
+              return false;
+            }
+            emptyLineNote.style.display = 'none';
+            lines.forEach(line => {
+              const option = document.createElement('option');
+              option.value = line.id;
+              option.textContent = getLineLabel(line);
+              lineSelect.appendChild(option);
+            });
+            lineSelect.value = lines[0].id;
+            lineSelect.disabled = false;
+            return true;
+          };
+          refreshLineOptions();
+          const routeSummary = document.createElement('div');
+          routeSummary.style.fontSize = '12px';
+          routeSummary.style.opacity = '0.8';
+          form.appendChild(routeSummary);
+          const stopsWrapper = document.createElement('div');
+          stopsWrapper.style.display = 'flex';
+          stopsWrapper.style.flexDirection = 'column';
+          stopsWrapper.style.gap = '6px';
+          stopsWrapper.style.minHeight = '30px';
+          form.appendChild(stopsWrapper);
+          const typeRow = document.createElement('div');
+          typeRow.style.display = 'flex';
+          typeRow.style.gap = '6px';
+          const typeSelect = document.createElement('select');
+          TRAIN_TYPE_OPTIONS.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.id;
+            option.textContent = opt.label;
+            typeSelect.appendChild(option);
+          });
+          typeRow.appendChild(typeSelect);
+          const capacitySlider = document.createElement('input');
+          capacitySlider.type = 'range';
+          capacitySlider.min = '1';
+          capacitySlider.max = '6';
+          capacitySlider.value = '3';
+          const capacityLabel = document.createElement('span');
+          capacityLabel.textContent = '輸送力: 3';
+          capacitySlider.addEventListener('input', () => {
+            capacityLabel.textContent = `輸送力: ${capacitySlider.value}`;
+          });
+          typeRow.appendChild(capacityLabel);
+          form.appendChild(typeRow);
+          const freqRow = document.createElement('div');
+          freqRow.style.display = 'flex';
+          freqRow.style.alignItems = 'center';
+          freqRow.style.gap = '6px';
+          const freqLabel = document.createElement('span');
+          freqLabel.textContent = '頻度: 2';
+          const freqSlider = document.createElement('input');
+          freqSlider.type = 'range';
+          freqSlider.min = '1';
+          freqSlider.max = '4';
+          freqSlider.value = '2';
+          freqSlider.addEventListener('input', () => {
+            freqLabel.textContent = `頻度: ${freqSlider.value}`;
+          });
+          freqRow.appendChild(freqLabel);
+          freqRow.appendChild(freqSlider);
+          form.appendChild(freqRow);
+          const createBtn = document.createElement('button');
+          createBtn.className = 'btn';
+          createBtn.textContent = 'ダイヤを保存';
+          createBtn.disabled = !lines.length;
+          form.appendChild(createBtn);
+          container.appendChild(form);
+          const stopControls = [];
+          const getSelectedLine = () => {
+            if (!lines.length) return null;
+            const value = lineSelect.value || (lineSelect.options[0] && lineSelect.options[0].value);
+            return lines.find(line => line.id === value) || null;
+          };
+          const updateStops = () => {
+            stopsWrapper.innerHTML = '';
+            stopControls.length = 0;
+            const line = getSelectedLine();
+            if (!line) {
+              const placeholder = document.createElement('div');
+              placeholder.textContent = '路線を選択すると中間駅候補を表示します';
+              placeholder.style.fontSize = '11px';
+              placeholder.style.opacity = '0.6';
+              stopsWrapper.appendChild(placeholder);
+              return;
+            }
+            const candidates = getLineStopCandidates(line);
+            if (!candidates.length) {
+              const placeholder = document.createElement('div');
+              placeholder.textContent = 'この路線には中間駅候補がありません';
+              placeholder.style.fontSize = '11px';
+              placeholder.style.opacity = '0.6';
+              stopsWrapper.appendChild(placeholder);
+              return;
+            }
+            candidates.forEach(city => {
+              const row = document.createElement('div');
+              row.style.display = 'flex';
+              row.style.alignItems = 'center';
+              row.style.gap = '8px';
+              const checkbox = document.createElement('input');
+              checkbox.type = 'checkbox';
+              checkbox.value = city.id;
+              const span = document.createElement('span');
+              span.textContent = city.name || `都市 ${city.id}`;
+              span.style.fontSize = '11px';
+              span.style.flex = '1';
+              const loopBtn = document.createElement('button');
+              loopBtn.type = 'button';
+              loopBtn.className = 'btn';
+              loopBtn.style.fontSize = '11px';
+              loopBtn.style.padding = '2px 8px';
+              loopBtn.textContent = '行き違いなし';
+              row.appendChild(checkbox);
+              row.appendChild(span);
+              row.appendChild(loopBtn);
+              stopsWrapper.appendChild(row);
+              const control = {
+                cityId: city.id,
+                checkbox,
+                loopToggle: loopBtn,
+                loopEnabled: false,
+              };
+              loopBtn.addEventListener('click', () => {
+                control.loopEnabled = !control.loopEnabled;
+                loopBtn.textContent = control.loopEnabled ? '行き違いあり' : '行き違いなし';
+                loopBtn.classList.toggle('active', control.loopEnabled);
+              });
+              stopControls.push(control);
+            });
+          };
+          const updateRouteDisplay = () => {
+            const line = getSelectedLine();
+            if (!line) {
+              routeSummary.textContent = '路線を選択してください';
+              createBtn.disabled = true;
+              updateStops();
+              return;
+            }
+            const originId = getLineEndpointId(line, 'start');
+            const destinationId = getLineEndpointId(line, 'end');
+            routeSummary.textContent = `経路: ${getCityDisplayName(originId)} → ${getCityDisplayName(destinationId)}`;
+            createBtn.disabled = false;
+            updateStops();
+          };
+          const refreshRailScheduleState = () => {
+            refreshLineOptions();
+            updateRouteDisplay();
+          };
+          railScheduleStateRefresher = refreshRailScheduleState;
+          lineSelect.addEventListener('change', updateRouteDisplay);
+          updateRouteDisplay();
+          createBtn.addEventListener('click', () => {
+            const line = getSelectedLine();
+            if (!line) {
+              if (tileInfoEl) tileInfoEl.textContent = '先に路線を選択してください';
+              return;
+            }
+            const originId = getLineEndpointId(line, 'start');
+            const destinationId = getLineEndpointId(line, 'end');
+            if (!originId || !destinationId || originId === destinationId) {
+              if (tileInfoEl) tileInfoEl.textContent = 'この路線は有効な起点・終点を持っていません';
+              return;
+            }
+            const stops = stopControls
+              .filter(control => control.checkbox.checked)
+              .map(control => ({
+                cityId: control.cityId,
+                passingLoop: !!control.loopEnabled,
+              }));
+            const schedule = addRailSchedule({
+              originId,
+              destinationId,
+              stops,
+              trainType: typeSelect.value,
+              capacity: Number(capacitySlider.value),
+              frequency: Number(freqSlider.value),
+              lineId: line.id,
+            });
+            globalFunds = Math.max(0, globalFunds - schedule.capacity * schedule.frequency * 4);
+            adjustCharacterValue('player', 'stats', 'infrastructure', 1 + Math.floor(schedule.capacity / 2));
+            if (tileInfoEl) {
+              tileInfoEl.textContent = `鉄道ダイヤを設定しました（${getTrainTypeLabel(schedule.trainType)}）`;
+            }
+            pushCandidateLogEntry('infrastructure', null, `鉄道ダイヤ ${getCityDisplayName(originId)}→${getCityDisplayName(destinationId)}`);
+            markMapDirty();
+            updateHudStats();
+            refreshSchedules();
+            updateRouteDisplay();
+          });
+          showStoryOverlay({
+            id: overlayId,
+            title: '鉄道ダイヤの制定',
+            body: container,
+            modal: true,
+            buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
+            animate: true,
+          });
         }
 
         function createHorsecarResearchPanel(overlayId) {
@@ -3579,6 +3938,13 @@
             buttonsRow.appendChild(drawBtn);
             buttonsRow.appendChild(commitBtn);
             container.appendChild(buttonsRow);
+            const scheduleBtn = document.createElement('button');
+            scheduleBtn.className = 'btn';
+            scheduleBtn.textContent = '鉄道ダイヤの制定';
+            scheduleBtn.addEventListener('click', () => {
+                openRailScheduleOverlay();
+            });
+            container.appendChild(scheduleBtn);
             const status = document.createElement('div');
             status.style.fontSize = '12px';
             status.style.opacity = '0.75';
@@ -6253,16 +6619,19 @@
   let is2DMode = false;
   let showCityNames = false;
   let appState = 'title';
-  let worldDirty = false;
-  let chunkRefreshNeeded = true;
-  let isStoryMode = false;
-  let timeControl = { speed: 1, lastTick: 0, interval: 2000 };
-  let titleBlend = 0;
-  let titleModeCurrent = false;
-  let titleModeNext = true;
-  let lastTitleTick = 0;
+    let worldDirty = false;
+    let chunkRefreshNeeded = true;
+    let isStoryMode = false;
+    let timeControl = { speed: 1, lastTick: 0, interval: 2000 };
+    let titleBlend = 0;
+    let titleModeCurrent = false;
+    let titleModeNext = true;
+    let lastTitleTick = 0;
 let globalFunds = 3000;
-  let currentTurn = 0;
+let railPassengerFlow = 0;
+let railRevenueLastTurn = 0;
+let railMaintenanceLastTurn = 0;
+    let currentTurn = 0;
   let successionTurnPlanned = null; // ターン数での王決定予定（null なら未定）
   // 継承競争／統治フェーズ
   let storyPhase = 'succession'; // 'succession' | 'governance'
@@ -6288,6 +6657,7 @@ let globalFunds = 3000;
   let pendingRailMode = false;
   let railDraft = null;
   let railOverlayContext = null;
+  let railScheduleStateRefresher = null;
   const RAIL_SNAP_THRESHOLD = 0.75;
   let detailCityId = null;
   let showCityStats = false;
@@ -8760,6 +9130,9 @@ let globalFunds = 3000;
       updateRailOverlayList();
       updateRailOverlayStatus('路線を確定しました。必要であれば再度描画してください。');
       updateRailOverlayControls();
+      if (typeof railScheduleStateRefresher === 'function') {
+        railScheduleStateRefresher();
+      }
       render();
     }
     return executed;
@@ -8829,6 +9202,177 @@ let globalFunds = 3000;
     return null;
   }
 
+  const TRAIN_TYPE_OPTIONS = [
+    { id: 'horsecar', label: '馬車列車' },
+    { id: 'magic', label: '魔導鉄道' },
+    { id: 'electric', label: '電車' },
+  ];
+
+  function getTrainTypeLabel(type) {
+    const entry = TRAIN_TYPE_OPTIONS.find(opt => opt.id === type);
+    return entry ? entry.label : '特別列車';
+  }
+
+  function getCityDisplayName(cityId) {
+    const city = cities[cityId];
+    if (!city) return `都市 ${cityId}`;
+    return city.name || `都市 ${city.id}`;
+  }
+
+  function getRailSchedules() {
+    const state = getWorldState();
+    if (!state.railSchedules) state.railSchedules = [];
+    return state.railSchedules;
+  }
+
+  function addRailSchedule(schedule) {
+    const entry = Object.assign({
+      id: `rail-schedule-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      createdTurn: currentTurn,
+    }, schedule);
+    const schedules = getRailSchedules();
+    schedules.unshift(entry);
+    if (schedules.length > 8) schedules.pop();
+    markWorldDirty();
+    return entry;
+  }
+
+function removeRailSchedule(scheduleId) {
+  const schedules = getRailSchedules();
+  const idx = schedules.findIndex(entry => entry.id === scheduleId);
+  if (idx === -1) return false;
+  schedules.splice(idx, 1);
+  markWorldDirty();
+  return true;
+}
+
+function getLineById(lineId) {
+  if (!lineId) return null;
+  const lines = getHorsecarLines();
+  return lines.find(line => line && line.id === lineId) || null;
+}
+
+function removeSchedulesForLine(lineId) {
+  const schedules = getRailSchedules();
+  let removed = false;
+  for (let i = schedules.length - 1; i >= 0; i--) {
+    if (schedules[i].lineId === lineId) {
+      schedules.splice(i, 1);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+function removeHorsecarLine(lineId) {
+  const lines = getHorsecarLines();
+  const idx = lines.findIndex(line => line && line.id === lineId);
+  if (idx === -1) return false;
+  lines.splice(idx, 1);
+  const removedSchedules = removeSchedulesForLine(lineId);
+  markWorldDirty();
+  return true;
+}
+
+function getCityFromPoint(point) {
+  if (!point) return null;
+  return cities.find(city => city && city.x === point.x && city.y === point.y) || null;
+}
+
+function getCitiesAlongLine(line) {
+  if (!line || !Array.isArray(line.path)) return [];
+  const seen = new Set();
+  return line.path
+    .map(point => getCityFromPoint(point))
+    .filter(city => city && !seen.has(city.id) && (seen.add(city.id), true));
+}
+
+function getLineEndpointId(line, position = 'start') {
+  if (!line) return null;
+  const directId = position === 'start' ? line.cityAId : line.cityBId;
+  if (Number.isFinite(directId)) return directId;
+  const path = Array.isArray(line.path) && line.path.length ? line.path : null;
+  const point = path ? (position === 'start' ? path[0] : path[path.length - 1]) : null;
+  const city = getCityFromPoint(point);
+  return city ? city.id : null;
+}
+
+function getLineLabel(line) {
+  const origin = getCityDisplayName(getLineEndpointId(line, 'start')) || '未設定';
+  const dest = getCityDisplayName(getLineEndpointId(line, 'end')) || '未設定';
+  return `${origin} → ${dest}`;
+}
+
+function getLineStopCandidates(line) {
+  if (!line) return [];
+  const originId = getLineEndpointId(line, 'start');
+  const destinationId = getLineEndpointId(line, 'end');
+  return getCitiesAlongLine(line).filter(city => city.id !== originId && city.id !== destinationId);
+}
+
+function getScheduleCities(schedule) {
+  if (!schedule) return [];
+  const collected = new Set();
+  const pushCity = city => {
+    if (city && Number.isFinite(city.id) && !collected.has(city.id)) {
+      collected.add(city.id);
+    }
+  };
+  const addId = (cityId) => {
+    if (!Number.isFinite(cityId)) return;
+    const city = cities[cityId];
+    if (city) pushCity(city);
+  };
+  addId(schedule.originId);
+  addId(schedule.destinationId);
+  if (Array.isArray(schedule.stops)) {
+    schedule.stops.forEach(stop => {
+      if (stop && typeof stop === 'object') {
+        addId(stop.cityId);
+      } else {
+        addId(stop);
+      }
+    });
+  }
+  return Array.from(collected).map(id => cities[id]).filter(Boolean);
+}
+
+function estimateSchedulePassengers(schedule) {
+  const ROUTE_POP_FACTOR = 0.00045;
+  const STOPS_BONUS = 3;
+  const citiesInRoute = getScheduleCities(schedule);
+  const totalPop = citiesInRoute.reduce((acc, city) => acc + (city.pop || 0), 0);
+  const base = Math.max(10, Math.round(totalPop * ROUTE_POP_FACTOR));
+  const stops = Math.max(0, citiesInRoute.length - 2);
+  return base + stops * STOPS_BONUS;
+}
+
+function getTrainTypeRevenueModifier(type) {
+  switch (type) {
+    case 'magic': return 0.3;
+    case 'electric': return 0.2;
+    default: return 0.1;
+  }
+}
+
+function estimateScheduleEconomy(schedule) {
+  if (!schedule) return { passengers: 0, revenue: 0, maintenance: 0, profit: 0 };
+  const passengers = estimateSchedulePassengers(schedule);
+  const loopPassengers = Array.isArray(schedule.stops)
+    ? schedule.stops.reduce((sum, stop) => sum + ((stop && typeof stop === 'object' && stop.passingLoop) ? 4 : 0), 0)
+    : 0;
+  const effectivePassengers = passengers + loopPassengers;
+  const revenuePerPassenger = 0.35 + getTrainTypeRevenueModifier(schedule.trainType);
+  const revenue = Math.round(effectivePassengers * schedule.frequency * revenuePerPassenger);
+  const maintenance = Math.round(schedule.capacity * schedule.frequency * 1.9);
+  return {
+    passengers: effectivePassengers,
+    revenue,
+    maintenance,
+    profit: revenue - maintenance,
+  };
+}
+
   function updateMobileTimeLabel() {
     if (!mobileTimeLabel) return;
     mobileTimeLabel.textContent = formatGameDate();
@@ -8848,10 +9392,15 @@ let globalFunds = 3000;
     const dateLabel = formatGameDate();
     const turnLabel = formatSuccessionCountdown();
     hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#d8dde9;">${dateLabel} / ${turnLabel}</span>`;
+    if (railRevenueLastTurn || railMaintenanceLastTurn || railPassengerFlow) {
+      const railNet = railRevenueLastTurn - railMaintenanceLastTurn;
+      const netLabel = railNet >= 0 ? `+${railNet}` : `${railNet}`;
+      hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#a8ffb5;">鉄道 ${railPassengerFlow}人 / ${netLabel}資金 (${railRevenueLastTurn}収 / ${railMaintenanceLastTurn}維)</span>`;
+    }
     updateMobileTimeLabel();
   }
 
-  function markSnow(rand) {
+function markSnow(rand) {
     for (let y=0;y<H;y++) {
       for (let x=0;x<W;x++) {
         const t = map[y][x];
@@ -9115,7 +9664,21 @@ let globalFunds = 3000;
     
     globalTax = taxTotal;
     globalMaintenance = roadCount * 0.8;
-    globalFunds += (globalTax - globalMaintenance);
+    const schedules = getRailSchedules();
+    let railRevenue = 0;
+    let railMaintenanceCost = 0;
+    let passengerFlowTotal = 0;
+    schedules.forEach(schedule => {
+      const econ = estimateScheduleEconomy(schedule);
+      railRevenue += econ.revenue;
+      railMaintenanceCost += econ.maintenance;
+      passengerFlowTotal += econ.passengers * (schedule.frequency || 1);
+    });
+    railRevenueLastTurn = Math.round(railRevenue);
+    railMaintenanceLastTurn = Math.round(railMaintenanceCost);
+    railPassengerFlow = Math.max(0, Math.round(passengerFlowTotal));
+    const railNet = Math.round(railRevenue - railMaintenanceCost);
+    globalFunds += (globalTax - globalMaintenance) + railNet;
     currentTurn += 1;
 
     // 政治ターン（行動ターン）の進行を同期し、行動ポイントやクールダウンを更新
