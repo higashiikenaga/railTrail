@@ -30,18 +30,9 @@
   const btnGoTitle = document.getElementById('btn-go-title');
   const btnGoLoad = document.getElementById('btn-go-load');
   const hudButtons = Array.from(document.querySelectorAll('#hud [data-action]'));
-  const mobileTouchButtons = [];
-  let mobileTouchPanel = null;
-  const MOBILE_TOUCH_ACTIONS = [
-    { action: 'toggle-civ', label: '文明' },
-    { action: 'toggle-roads', label: '道路' },
-    { action: 'toggle-2d', label: '2D切替' },
-    { action: 'toggle-names', label: '都市名' },
-    { action: 'select-capital', label: '王位選定' },
-    { action: 'develop', label: '開拓' },
-    { action: 'reset-view', label: '中心' },
-    { action: 'regenerate', label: '再生成' },
-  ];
+  const MOBILE_BREAKPOINT = 900;
+  const SPEED_ORDER = [0, 1, 2, 3];
+  const SPEED_LABELS = { 0: '停止', 1: '1x', 2: '2x', 3: '3x' };
   const hasTouchSupport = (() => {
     if (typeof window === 'undefined') return false;
     if ('ontouchstart' in window) return true;
@@ -51,21 +42,41 @@
     }
     return false;
   })();
+  let mobileActivePanel = null;
+  const mobileBarButtons = [];
+  let mobileBar = null;
+  let mobileOverlay = null;
+  let orientationLockEl = null;
+  let mobilePanelElements = {};
+  let mobileInfoMirror = null;
+  let mobileStatsMirror = null;
+  let mobileTickerEl = null;
+  let mobileTimeLabel = null;
+  let mobileSpeedButton = null;
+  let mobileNewsActionsEl = null;
+  let mobileModalShell = null;
+  let mobileModalHeaderEl = null;
+  let mobileModalBackBtn = null;
+  let mobileModalTitleEl = null;
+  const mobileObservers = [];
+  const mobileOverlayHistory = [];
 
   function requestCapitalSelection() {
     pendingCapitalSelection = true;
     pendingDevelopment = false;
     if (tileInfoEl) {
-      tileInfoEl.textContent = 'Tap a city tile to designate the next capital.';
+      tileInfoEl.textContent = '王都に指定したい都市をクリックしてください';
     }
+    updateControlButtons();
   }
 
   function requestDevelopmentSelection() {
     pendingDevelopment = true;
     pendingCapitalSelection = false;
     if (tileInfoEl) {
-      tileInfoEl.textContent = 'Tap a flat tile to settle a frontier village.';
+      tileInfoEl.textContent = '開拓する場所をクリックしてください';
     }
+    updateControlButtons();
   }
   const STORY_TIMELINE_LIMIT = 120;
   const MONTHLY_ARCHIVE_LIMIT = 12;
@@ -447,7 +458,7 @@
       if (elapsed < 15) {
         drawBloomText(ctx, '気づけばここにいた‥‥‥', centerX, 128, { size: 24, intensity: 2 });
       } else {
-        const combined = '去年、王国は静かに傾いたらしい。';
+        const combined = '王国は、静かに傾いた。';
         const progress = clamp((elapsed - 15) / 5, 0, 1);
         const count = Math.max(3, Math.min(combined.length, Math.floor(combined.length * progress)));
         const display = combined.slice(0, count);
@@ -1571,6 +1582,14 @@
         return `${actionName}${context}`;
       }
 
+      function updateMobileNewsTicker() {
+        if (!mobileTickerEl) return;
+        const latest = monthlyNewspapers[0];
+        mobileTickerEl.textContent = latest && latest.entries.length
+          ? `${formatGameDate(latest.turn)} ${latest.entries[0].summary}`
+          : '王令新聞・ストーリー';
+      }
+
       function archiveMonthlyNewspaper(turn, entries) {
         const safeEntries = Array.isArray(entries)
           ? entries.map(entry => ({
@@ -1587,11 +1606,13 @@
         if (monthlyNewspapers.length > MONTHLY_ARCHIVE_LIMIT) {
           monthlyNewspapers.length = MONTHLY_ARCHIVE_LIMIT;
         }
+        updateMobileNewsTicker();
       }
 
       function resetStoryJournal() {
         storyActionTimeline.length = 0;
         monthlyNewspapers.length = 0;
+        updateMobileNewsTicker();
         lastMonthlyNewspaperTurn = -1;
         aiActionLog.length = 0;
       }
@@ -1612,10 +1633,9 @@
         return entry;
       }
 
-      function showRoyalNewspaper(entries, turn) {
+      function openRoyalNewsOverlay(entries, turn, monthLabel, topAlign = false) {
         if (!entries.length || !storyOverlayRoot) return;
         const overlayId = `royal-news-${turn}-${Date.now()}`;
-        const monthLabel = formatGameDate(turn);
         const container = document.createElement('div');
         container.style.display = 'flex';
         container.style.flexDirection = 'column';
@@ -1631,14 +1651,32 @@
         });
         showStoryOverlay({
           id: overlayId,
-          title: `王令新聞 ${monthLabel}`,
+          title: `???? ${monthLabel}`,
           body: container,
           modal: false,
-          buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
+          buttons: [{ label: '???', action: () => closeStoryOverlay(overlayId) }],
+          topAlign,
+          animate: topAlign,
+          width: Math.min(520, window.innerWidth - 40),
         });
-        playSystemSound('news');
       }
 
+      function showRoyalNewspaper(entries, turn) {
+        if (!entries.length) return;
+        const monthLabel = formatGameDate(turn);
+        archiveMonthlyNewspaper(turn, entries);
+        updateMobileNewsTicker();
+        if (mobileNewsActionsEl) {
+          renderMobileNewsActions(entries, turn);
+        }
+        if (document.body && document.body.classList.contains('mobile-ui-enabled')) {
+          playSystemSound('news');
+          return;
+        }
+        clearMobileNewsActions();
+        openRoyalNewsOverlay(entries, turn, monthLabel, true);
+        playSystemSound('news');
+      }
       function openNationOverviewOverlay() {
         if (!storyOverlayRoot) return;
         const overlayId = 'nation-overview';
@@ -1917,7 +1955,7 @@
     container.style.gap = '10px';
     const warning = document.createElement('div');
     warning.style.fontSize = '12px';
-    warning.style.color = '#ffbfbf';
+    warning.style.color = '#140404';
     warning.style.fontWeight = '600';
     warning.textContent = 'ネタバレ注意：物語の進行やAIの判断が含まれます。';
     container.appendChild(warning);
@@ -2397,6 +2435,63 @@
     });
   }
 
+  function appendContentTo(target, payload) {
+    if (!target) return;
+    target.innerHTML = '';
+    if (!payload) return;
+    const resolved = typeof payload === 'function' ? payload() : payload;
+    if (!resolved) return;
+    if (resolved instanceof Node) {
+      target.appendChild(resolved);
+      return;
+    }
+    const div = document.createElement('div');
+    div.innerHTML = String(resolved);
+    target.appendChild(div);
+  }
+
+  function showStoryOverlayMobile(options, overlayId) {
+    if (!mobileModalShell) return null;
+    const {
+      title,
+      body,
+      buttons = [],
+      modal=false,
+      mobileTitle,
+    } = options || {};
+    const modalContainer = document.createElement('div');
+    modalContainer.className = 'mobile-modal-window';
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'mobile-modal-body';
+    appendContentTo(bodyEl, body);
+    modalContainer.appendChild(bodyEl);
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'mobile-modal-buttons';
+    const effectiveButtons = buttons && buttons.length ? buttons : [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }];
+    effectiveButtons.forEach(cfg => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn';
+      b.textContent = cfg.label || 'OK';
+      b.addEventListener('click', () => {
+        if (typeof cfg.action === 'function') {
+          cfg.action();
+        }
+      });
+      buttonRow.appendChild(b);
+    });
+    modalContainer.appendChild(buttonRow);
+    mobileModalShell.appendChild(modalContainer);
+    const overlay = { id: overlayId, title, modal, el: modalContainer };
+    overlayStack.push(overlay);
+    const caption = typeof mobileTitle === 'string' ? mobileTitle : (typeof title === 'string' ? title : '');
+    if (caption) {
+      registerMobileOverlayEntry(overlayId, caption, () => closeStoryOverlay(overlayId));
+    }
+    updateMobileOverlayHeader();
+    return overlayId;
+  }
+
   function showStoryOverlay(options) {
     if (!storyOverlayRoot) return null;
     const {
@@ -2409,35 +2504,45 @@
       animate=false,
       tabs,
       initialTabId,
+      topAlign=false,
       center=false,
       width,
+      mobileTitle,
     } = options || {};
     const overlayId = id || `story-${++overlayCounter}`;
     const existing = overlayStack.find(o => o.id === overlayId);
     if (existing) {
       return overlayId;
     }
+    const useMobileModal = document.body?.classList.contains('mobile-ui-enabled') && mobileModalShell;
+    if (useMobileModal) {
+      return showStoryOverlayMobile(options, overlayId);
+    }
     const win = document.createElement('div');
     win.className = 'win98-window';
-    if (animate) {
-      win.style.animation = 'popIn 0.25s ease';
-      win.style.animationFillMode = 'both';
-    }
-    const offset = overlayStack.length * 18;
-    win.style.left = `${40 + offset}px`;
-    win.style.top = `${40 + offset}px`;
-    if (width) win.style.width = width;
-
-    if (center) {
+    const mobileOverlayOffset = document.body?.classList.contains('mobile-ui-enabled') ? 500 : 0;
+    if (topAlign) {
+      win.classList.add('news-overlay');
       win.style.left = '50%';
-      win.style.top = '50%';
-      win.style.transform = 'translate(-50%, -50%)';
+      win.style.top = '0';
+      win.style.zIndex = String(200 + overlayStack.length + mobileOverlayOffset);
+      win.style.animation = 'newsDrop 0.4s ease forwards';
     } else {
+      if (animate) {
+        win.style.animation = 'popIn 0.25s ease';
+        win.style.animationFillMode = 'both';
+      }
       const offset = overlayStack.length * 18;
       win.style.left = `${40 + offset}px`;
       win.style.top = `${40 + offset}px`;
+      if (center) {
+        win.style.left = '50%';
+        win.style.top = '50%';
+        win.style.transform = 'translate(-50%, -50%)';
+      }
+      win.style.zIndex = String(100 + overlayStack.length + mobileOverlayOffset);
     }
-    win.style.zIndex = String(100 + overlayStack.length);
+    if (width) win.style.width = width;
 
     const bar = document.createElement('div');
     bar.className = 'win98-titlebar';
@@ -2462,19 +2567,6 @@
     const bodyEl = document.createElement('div');
     bodyEl.className = 'win98-body';
     const tabList = Array.isArray(tabs) && tabs.length ? tabs : null;
-    function appendContent(target, payload) {
-      target.innerHTML = '';
-      if (!payload) return;
-      const resolved = typeof payload === 'function' ? payload() : payload;
-      if (!resolved) return;
-      if (resolved instanceof Node) {
-        target.appendChild(resolved);
-        return;
-      }
-      const div = document.createElement('div');
-      div.innerHTML = String(resolved);
-      target.appendChild(div);
-    }
     if (tabList) {
       let activeTabId = initialTabId || tabList[0].id;
       const navRow = document.createElement('div');
@@ -2488,7 +2580,7 @@
         tabButtons.forEach(btn => {
           btn.classList.toggle('active', btn.dataset.tabId === activeTab.id);
         });
-        appendContent(tabContentEl, activeTab.body ?? activeTab.content ?? activeTab.render);
+        appendContentTo(tabContentEl, activeTab.body ?? activeTab.content ?? activeTab.render);
       }
       tabList.forEach(tab => {
         const btn = document.createElement('button');
@@ -2508,7 +2600,7 @@
       bodyEl.appendChild(tabContentEl);
       renderActiveTab();
     } else {
-      appendContent(bodyEl, body);
+      appendContentTo(bodyEl, body);
     }
 
     const buttonRow = document.createElement('div');
@@ -2545,6 +2637,10 @@
     storyOverlayRoot.appendChild(win);
     const overlay = { id:overlayId, title, modal, el:win };
     overlayStack.push(overlay);
+    const caption = typeof mobileTitle === 'string' ? mobileTitle : (typeof title === 'string' ? title : '');
+    if (caption) {
+      registerMobileOverlayEntry(overlayId, caption, () => closeStoryOverlay(overlayId));
+    }
 
     if (typeof onCreate === 'function') {
       onCreate({ root:win, bodyEl });
@@ -2554,12 +2650,13 @@
   }
 
   function closeStoryOverlay(id) {
+      removeMobileOverlayEntry(id);
       const idx = overlayStack.findIndex(o => o.id === id);
       if (idx === -1) return;
       const overlay = overlayStack[idx];
       overlayStack.splice(idx, 1);
-      if (overlay && overlay.el && overlay.el.parentNode === storyOverlayRoot) {
-        storyOverlayRoot.removeChild(overlay.el);
+      if (overlay && overlay.el && overlay.el.parentNode) {
+        overlay.el.parentNode.removeChild(overlay.el);
       }
       if (railOverlayContext && railOverlayContext.overlayId === id) {
         deactivateRailMode();
@@ -3876,11 +3973,15 @@
         return `${entry.x},${entry.y} - ${label}${manual} / civ ${civ}`;
       }
 
+        function userCanManageInfrastructure() {
+          return roles.player === 'king' || roles.player === 'chancellor';
+        }
+
         function handleHUDAction(e) {
         if (appState !== 'map' || !worldReady) return;
         const action = e.currentTarget.dataset.action;
         const timeLocked = isStoryMode && successionTurnPlanned != null && currentTurn < successionTurnPlanned;
-        const canManageInfrastructure = roles.player === 'king' || roles.player === 'chancellor';
+        const canManageInfrastructure = userCanManageInfrastructure();
       switch(action) {
       case 'reset-view':
         recenterView(true);
@@ -4096,7 +4197,7 @@
           } else if (btn.disabled) {
             btn.disabled = false;
           }
-        }
+      }
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
         if (['toggle-names','time-2x','time-3x','select-capital','develop','story-timeline'].includes(action)) {
@@ -4127,7 +4228,8 @@
           railManualBtn.style.display = infrastructureEnabled ? 'inline-flex' : 'none';
           railManualBtn.disabled = !infrastructureEnabled;
         }
-    syncMobileTouchButtons();
+    refreshPanelActionStates();
+    updateMobileSpeedButton();
   }
 
   function handleTouchAction(action) {
@@ -4154,23 +4256,62 @@
         showCityNames = !showCityNames;
         render();
         break;
+      case 'toggle-traffic':
+        showTrafficOverlay = !showTrafficOverlay;
+        render();
+        break;
       case 'select-capital':
         requestCapitalSelection();
         break;
       case 'develop':
         requestDevelopmentSelection();
         break;
+      case 'candidate-infra':
+      case 'candidate-security':
+      case 'candidate-magic':
+        createActionOverlay(action);
+        break;
+      case 'road-maintenance':
+        if (!userCanManageInfrastructure()) {
+          if (tileInfoEl) tileInfoEl.textContent = '王または宰相でないと操作できません';
+          break;
+        }
+        openRoadConstructionOverlay();
+        break;
+      case 'rail-maintenance':
+        if (!userCanManageInfrastructure()) {
+          if (tileInfoEl) tileInfoEl.textContent = '王または宰相でないと操作できません';
+          break;
+        }
+        openHorsecarRailOverlay();
+        break;
+      case 'enact-law':
+        if (roles.player !== 'king') {
+          if (tileInfoEl) tileInfoEl.textContent = '王であれば法律を制定できます';
+          break;
+        }
+        openLawSelectionOverlay();
+        break;
+      case 'develop-frontier':
+        if (roles.player !== 'king') {
+          if (tileInfoEl) tileInfoEl.textContent = '王でないと未開地を開拓できません';
+          break;
+        }
+        openFrontierOverlay();
+        break;
       case 'reset-view':
         recenterView(true);
         render();
         break;
-      case 'regenerate':
-        generate();
-        markMapDirty();
-        if (tileInfoEl) {
-          tileInfoEl.textContent = 'The terrain has been regenerated.';
-        }
-        render();
+      case 'save-world':
+        exportWorldAsJson();
+        break;
+      case 'load-world':
+        importWorldFromJson('map');
+        break;
+      case 'return-title':
+        hideGameOver();
+        showConfirmOverlay();
         break;
       default:
         return;
@@ -4178,10 +4319,14 @@
     updateControlButtons();
   }
 
-  function syncMobileTouchButtons() {
-    if (!mobileTouchButtons.length) return;
-    mobileTouchButtons.forEach(button => {
-      const action = button.dataset.touchAction;
+  function triggerHUDButton(action) {
+    const target = hudButtons.find(btn => btn.dataset.action === action);
+    if (target) target.click();
+  }
+
+  function refreshPanelActionStates() {
+    document.querySelectorAll('[data-panel-action]').forEach(button => {
+      const action = button.dataset.panelAction;
       let active = false;
       let disabled = false;
       switch (action) {
@@ -4206,32 +4351,224 @@
           active = pendingDevelopment;
           disabled = isCapitalDevelopmentLocked();
           break;
+        case 'toggle-traffic':
+          active = showTrafficOverlay;
+          break;
         default:
           break;
       }
       button.classList.toggle('active', active);
       button.disabled = disabled;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-hud-action]').forEach(button => {
+      const action = button.dataset.hudAction;
+      const source = hudButtons.find(btn => btn.dataset.action === action);
+      if (source) {
+        button.disabled = source.disabled;
+        const isActive = source.classList.contains('active');
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      }
     });
   }
 
-  function createMobileTouchPanel() {
-    if (!hasTouchSupport || mobileTouchPanel) return;
-    const panel = document.createElement('div');
-    panel.id = 'mobile-touch-panel';
-    panel.setAttribute('aria-label', 'touch controls');
-    MOBILE_TOUCH_ACTIONS.forEach(({ action, label }) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn touch-btn';
-      btn.textContent = label;
-      btn.dataset.touchAction = action;
-      btn.addEventListener('click', () => handleTouchAction(action));
-      panel.appendChild(btn);
-      mobileTouchButtons.push(btn);
+  function updateMobilePanels() {
+    if (mobileOverlay) {
+      mobileOverlay.classList.toggle('panel-open', Boolean(mobileActivePanel));
+    }
+    Object.entries(mobilePanelElements).forEach(([key, el]) => {
+      if (!el) return;
+      el.classList.toggle('visible', mobileActivePanel === key);
     });
-    document.body.appendChild(panel);
-    mobileTouchPanel = panel;
-    syncMobileTouchButtons();
+    mobileBarButtons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.panelTarget === mobileActivePanel);
+    });
+  }
+
+  function toggleMobilePanel(panelId) {
+    if (!document.body.classList.contains('mobile-ui-enabled')) return;
+    mobileActivePanel = mobileActivePanel === panelId ? null : panelId;
+    updateMobilePanels();
+  }
+
+  function closeMobilePanel() {
+    if (!mobileActivePanel) return;
+    mobileActivePanel = null;
+    updateMobilePanels();
+  }
+
+  function updateOrientationLock() {
+    if (!orientationLockEl) return;
+    const shouldShow =
+      hasTouchSupport &&
+      window.innerWidth <= MOBILE_BREAKPOINT &&
+      window.innerHeight < window.innerWidth;
+    orientationLockEl.classList.toggle('visible', shouldShow);
+    document.body.classList.toggle('orientation-locked', shouldShow);
+  }
+
+  function updateMobileOverlayHeader() {
+    if (!mobileModalHeaderEl || !mobileModalTitleEl) return;
+    const entry = mobileOverlayHistory[mobileOverlayHistory.length - 1];
+    if (entry) {
+      mobileModalTitleEl.textContent = entry.title || '';
+      mobileModalHeaderEl.classList.add('visible');
+    } else {
+      mobileModalHeaderEl.classList.remove('visible');
+    }
+  }
+
+  function registerMobileOverlayEntry(id, title, closeFn) {
+    if (!document?.body?.classList.contains('mobile-ui-enabled')) return;
+    if (!id) return;
+    const existing = mobileOverlayHistory.findIndex(entry => entry.id === id);
+    if (existing !== -1) {
+      mobileOverlayHistory.splice(existing, 1);
+    }
+    mobileOverlayHistory.push({ id, title: title || '', close: closeFn });
+    updateMobileOverlayHeader();
+  }
+
+  function removeMobileOverlayEntry(id) {
+    if (!id) return;
+    const idx = mobileOverlayHistory.findIndex(entry => entry.id === id);
+    if (idx === -1) return;
+    mobileOverlayHistory.splice(idx, 1);
+    updateMobileOverlayHeader();
+  }
+
+  function handleMobileOverlayBack() {
+    if (!mobileOverlayHistory.length) return;
+    const entry = mobileOverlayHistory.pop();
+    updateMobileOverlayHeader();
+    if (entry && typeof entry.close === 'function') {
+      entry.close();
+    }
+  }
+
+      function renderMobileNewsActions(entries, turn) {
+        if (!mobileNewsActionsEl) return;
+        mobileNewsActionsEl.innerHTML = '';
+        if (!entries || !entries.length) {
+          mobileNewsActionsEl.style.display = 'none';
+          return;
+        }
+        const showEntryButtons = entries.length > 1;
+        if (showEntryButtons) {
+          const slab = entries.slice(0, 3);
+          slab.forEach(entry => {
+            const btn = document.createElement('button');
+            const text = (entry.summary || '').trim();
+            const short = text.length > 16 ? `${text.slice(0, 16)}…` : text;
+            btn.textContent = short || '詳細';
+            if (text) btn.title = text;
+            btn.type = 'button';
+            btn.addEventListener('click', () => showMobileNewsEntry(entry, turn));
+            mobileNewsActionsEl.appendChild(btn);
+          });
+        }
+        const more = document.createElement('button');
+        more.textContent = '新聞詳細';
+        more.type = 'button';
+        more.addEventListener('click', () => openRoyalNewsOverlay(entries, turn, formatGameDate(turn), true));
+        mobileNewsActionsEl.appendChild(more);
+        mobileNewsActionsEl.style.display = 'flex';
+      }
+
+      function clearMobileNewsActions() {
+        if (!mobileNewsActionsEl) return;
+        mobileNewsActionsEl.innerHTML = '';
+        mobileNewsActionsEl.style.display = 'none';
+      }
+
+      function showMobileNewsEntry(entry, turn) {
+        openRoyalNewsOverlay([entry], turn, formatGameDate(turn), true);
+      }
+
+  function updateMobileUIVisibility() {
+    const enabled = hasTouchSupport && window.innerWidth <= MOBILE_BREAKPOINT;
+    document.body.classList.toggle('mobile-ui-enabled', enabled);
+    if (!enabled) {
+      closeMobilePanel();
+      mobileOverlayHistory.length = 0;
+      updateMobileOverlayHeader();
+    }
+    updateOrientationLock();
+    if (enabled) {
+      updateMobileOverlayHeader();
+    }
+  }
+
+  function setupInfoMirrors() {
+    if (tileInfoEl && mobileInfoMirror) {
+      const tileObserver = new MutationObserver(() => {
+        mobileInfoMirror.innerHTML = tileInfoEl.innerHTML;
+      });
+      tileObserver.observe(tileInfoEl, { childList: true, subtree: true, characterData: true });
+      mobileInfoMirror.innerHTML = tileInfoEl.innerHTML;
+      mobileObservers.push(tileObserver);
+    }
+    if (hudStatsEl && mobileStatsMirror) {
+      const statsObserver = new MutationObserver(() => {
+        mobileStatsMirror.innerHTML = hudStatsEl.innerHTML;
+      });
+      statsObserver.observe(hudStatsEl, { childList: true, subtree: true, characterData: true });
+      mobileStatsMirror.innerHTML = hudStatsEl.innerHTML;
+      mobileObservers.push(statsObserver);
+    }
+  }
+
+  function setupMobileUI() {
+    if (!hasTouchSupport) return;
+    mobileBar = document.getElementById('mobile-bar');
+    mobileOverlay = document.getElementById('mobile-overlay');
+    orientationLockEl = document.getElementById('orientation-lock');
+    mobileInfoMirror = document.getElementById('mobile-info-mirror');
+    mobileStatsMirror = document.getElementById('mobile-hud-stats-mirror');
+    mobileNewsActionsEl = document.getElementById('mobile-news-actions');
+    mobileSpeedButton = document.getElementById('mobile-speed-button');
+    mobileTickerEl = document.getElementById('mobile-news-ticker');
+    mobileTimeLabel = document.getElementById('mobile-time-label');
+    mobileModalShell = document.getElementById('mobile-modal-shell');
+    mobileModalHeaderEl = document.getElementById('mobile-modal-header');
+    mobileModalBackBtn = document.getElementById('mobile-modal-back');
+    mobileModalTitleEl = document.getElementById('mobile-modal-title');
+    mobilePanelElements = {
+      world: document.getElementById('mobile-panel-world'),
+      actions: document.getElementById('mobile-panel-actions'),
+      info: document.getElementById('mobile-panel-info'),
+    };
+    if (mobileBar) {
+      mobileBar.querySelectorAll('[data-panel-target]').forEach(btn => {
+        btn.addEventListener('click', () => toggleMobilePanel(btn.dataset.panelTarget));
+        mobileBarButtons.push(btn);
+      });
+    }
+    document.querySelectorAll('[data-panel-action]').forEach(btn => {
+      btn.addEventListener('click', () => handleTouchAction(btn.dataset.panelAction));
+    });
+    document.querySelectorAll('[data-hud-action]').forEach(btn => {
+      btn.addEventListener('click', () => triggerHUDButton(btn.dataset.hudAction));
+    });
+    updateMobileUIVisibility();
+    window.addEventListener('resize', updateMobileUIVisibility);
+    window.addEventListener('orientationchange', updateMobileUIVisibility);
+    if (mobileSpeedButton) {
+      mobileSpeedButton.addEventListener('click', () => {
+        const currentIdx = SPEED_ORDER.indexOf(timeControl.speed);
+        const next = SPEED_ORDER[(currentIdx + 1) % SPEED_ORDER.length];
+        timeControl.speed = next;
+        updateControlButtons();
+      });
+    }
+    if (mobileModalBackBtn) {
+      mobileModalBackBtn.addEventListener('click', handleMobileOverlayBack);
+    }
+    setupInfoMirrors();
+    updateMobileNewsTicker();
+    updateMobileTimeLabel();
+    updateMobileSpeedButton();
   }
 
   function ensureBgmSource() {
@@ -4366,6 +4703,7 @@
     cityListOverlay.style.display = 'flex';
     cityListVisible = true;
     updateControlButtons();
+    registerMobileOverlayEntry('mobile-city-list', '都市一覧', hideCityListOverlay);
   }
 
   function hideCityListOverlay() {
@@ -4373,6 +4711,7 @@
     cityListOverlay.style.display = 'none';
     cityListVisible = false;
     updateControlButtons();
+    removeMobileOverlayEntry('mobile-city-list');
   }
 
 
@@ -4490,6 +4829,9 @@
     maybeShowMonthlyNewspaper();
     updateBgmControls();
     updateBGMState();
+    if (document && document.body) {
+      document.body.classList.toggle('title-active', appState === 'title');
+    }
   }
 
   function setTitleStatus(message) {
@@ -5018,6 +5360,7 @@
           createdAt: typeof issue.createdAt === 'number' ? issue.createdAt : Date.now(),
         });
       });
+      updateMobileNewsTicker();
     }
     if (storyData && typeof storyData.lastNewspaperTurn === 'number') {
       lastMonthlyNewspaperTurn = storyData.lastNewspaperTurn;
@@ -8165,15 +8508,27 @@ let globalFunds = 3000;
     return null;
   }
 
+  function updateMobileTimeLabel() {
+    if (!mobileTimeLabel) return;
+    mobileTimeLabel.textContent = formatGameDate();
+  }
+
+  function updateMobileSpeedButton() {
+    if (!mobileSpeedButton) return;
+    const label = SPEED_LABELS[timeControl.speed] || '1x';
+    mobileSpeedButton.textContent = `速度：${label}`;
+  }
+
   function updateHudStats() {
     if (!hudStatsEl) return;
     const sign = (globalTax - globalMaintenance) >= 0 ? '+' : '';
     hudStatsEl.innerHTML = `資金: ${Math.floor(globalFunds)} <span style="font-size:11px; opacity:0.8;">(${sign}${Math.floor(globalTax - globalMaintenance)})</span><br>
       <span style="font-size:11px; font-weight:normal; color:#d8dee9;">インフラ維持費: -${Math.floor(globalMaintenance)} / 税収: +${Math.floor(globalTax)}</span>`;
-      const dateLabel = formatGameDate();
-      const turnLabel = formatSuccessionCountdown();
-      hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#d8dde9;">${dateLabel} / ${turnLabel}</span>`;
-    }
+    const dateLabel = formatGameDate();
+    const turnLabel = formatSuccessionCountdown();
+    hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#d8dde9;">${dateLabel} / ${turnLabel}</span>`;
+    updateMobileTimeLabel();
+  }
 
   function markSnow(rand) {
     for (let y=0;y<H;y++) {
@@ -8727,10 +9082,8 @@ let globalFunds = 3000;
   generate();
   worldDirty = false;
   updateUIState();
+  setupMobileUI();
   render();
-  if (hasTouchSupport) {
-    createMobileTouchPanel();
-  }
   requestAnimationFrame(animationLoop);
   window.addEventListener('beforeunload', () => {
     if (bgmBlobUrl) {
