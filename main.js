@@ -58,6 +58,7 @@
   let mobileModalHeaderEl = null;
   let mobileModalBackBtn = null;
   let mobileModalTitleEl = null;
+  const mobileStoryEndBtn = document.querySelector('[data-panel-action="story-abdicate"]');
   const mobileObservers = [];
   const mobileOverlayHistory = [];
 
@@ -1069,6 +1070,11 @@
         road_construction: '街道建設',
         frontier_development: '開拓',
         magic: '魔法研究',
+        story_pre_succession: '王命前夜',
+        story_prologue_failure: '去年の王の失策',
+        story_building_era: '建設の時代',
+        story_politics_era: '政治の時代',
+        story_division_era: '分裂の時代',
       };
       const ACTION_DEFS = {
         infrastructure: {
@@ -1319,6 +1325,8 @@
       };
 
       const REGION_NAMES = ['アスティア', 'ノルドランド', 'ヴァレンシア', 'ルミニア', 'サバンナ', 'エルダーナ', 'コスタ', 'ハイランド', 'オリオン', 'セレシア'];
+      const MAX_CITY_DEFENSE_CORPS = 120;
+      const MAX_REGION_DIVISIONS = 5;
       const LAW_SEED = [
         { baseId:'centralized_tax', basePhrase:'王都の', category:'economy', effects:{taxEfficiency:0.15, unrest:5}, ideologyReq:{centralization:80}, supportFocus:{nobility:0.6, merchants:0.4}, cooldown:4, description:'税収を王都直轄に集中し、中央の権力基盤を固める。', descriptors:['執行税務','収支管理','国庫整備'] },
         { baseId:'stability_ordinance', basePhrase:'大臣会議の', category:'governance', effects:{stability:5, unrest:2}, ideologyReq:{centralization:60, traditionalism:60}, supportFocus:{citizens:0.5, clergy:0.3}, cooldown:3, description:'秩序と伝統を守るための規律を強化する。', descriptors:['秩序法案','清廉令','礼節規定'] },
@@ -1561,6 +1569,7 @@
       }
 
       function getActorDisplayName(actorId) {
+        if (actorId === 'royal-newspaper') return '王令新聞';
         if (!actorId) return '王国';
         const label = getCandidateName(actorId);
         return label || actorId;
@@ -1629,9 +1638,9 @@
         if (!isStoryMode) return null;
         const entry = {
           turn: currentTurn,
-          actorId,
-          actorName: getActorDisplayName(actorId),
-          actionId,
+        actorId,
+        actorName: typeof opts.actorName === 'string' ? opts.actorName : getActorDisplayName(actorId),
+        actionId,
           summary: buildStoryActionSummary(actionId, opts),
         };
         storyActionTimeline.push(entry);
@@ -1643,6 +1652,10 @@
 
       function openRoyalNewsOverlay(entries, turn, monthLabel, topAlign = false) {
         if (!entries.length || !storyOverlayRoot) return;
+        if (lastRoyalNewsOverlayId) {
+          closeStoryOverlay(lastRoyalNewsOverlayId);
+          lastRoyalNewsOverlayId = null;
+        }
         const overlayId = `royal-news-${turn}-${Date.now()}`;
         const container = document.createElement('div');
         container.style.display = 'flex';
@@ -1659,14 +1672,15 @@
         });
         showStoryOverlay({
           id: overlayId,
-          title: `???? ${monthLabel}`,
+          title: `王令新聞 ${monthLabel}`,
           body: container,
           modal: false,
-          buttons: [{ label: '???', action: () => closeStoryOverlay(overlayId) }],
+          buttons: [{ label: '了解', action: () => closeStoryOverlay(overlayId) }],
           topAlign,
           animate: topAlign,
           width: Math.min(520, window.innerWidth - 40),
         });
+        lastRoyalNewsOverlayId = overlayId;
       }
 
       function showRoyalNewspaper(entries, turn) {
@@ -2107,6 +2121,21 @@
         kingAI.proposalsShown = true;
       }
 
+      function getNonplayerCandidateIds() {
+        return ['marshal','princess','council'].filter(id => id !== 'player');
+      }
+
+      function getNPCDisplayNames() {
+        return getNonplayerCandidateIds()
+          .map(id => getCandidateName(id))
+          .filter(Boolean);
+      }
+
+      function formatNPCSummary() {
+        const names = getNPCDisplayNames();
+        return names.length ? names.join('・') : '他の候補者たち';
+      }
+
       function announceCapitalMove(city) {
         if (!city) return;
         const headline = `王都は ${city.name || '未知の都市'} に移転した`;
@@ -2359,8 +2388,511 @@
     firstCapitalSet:false,
   };
 
+  const STORY_SCENARIOS = {
+    ARRIVAL: 'arrival',
+    INVESTIGATION: 'investigation',
+    PRE_SUCCESSION: 'preSuccession',
+    POST_SUCCESSION: 'postSuccession',
+    LEGACY: 'legacy',
+  };
+
+  function createStoryPhaseFlags() {
+    return {
+      buildingEra: false,
+      politicsEra: false,
+      divisionEra: false,
+    };
+  }
+
+  const PRE_SUCCESSION_NEWS_EVENTS = [
+    {
+      turn: 4,
+      title: '王令新聞：候補者巡覧',
+      summary: '王令新聞「候補者巡覧」防衛団と師団の編成が最初の注目点となる。',
+      body: [
+        '王候補たちは都市を巡り、防衛団ごとの強さと師団の配置を確認しながら歩を進めた。',
+        'ラウル・グレイヴは砦の再編を誓い、リリア・アステルは魔法研究と民の対話を掲げ、あなたはその空気を見守る。',
+      ],
+    },
+    {
+      turn: 11,
+      title: '王令新聞：軍備と魔法の綾',
+      summary: '王令新聞「軍備と魔法の綾」防衛団を巡る発言と魔法研究の展開が交差する。',
+      body: [
+        '軍務の会議では都市の防衛団の動員法が語られ、師団の資源配分も併せて検討された。',
+        '魔法研究所では研究者たちが防衛団と協調する模索を重ね、あなたは守るべきバランスを探る。',
+      ],
+    },
+    {
+      turn: 18,
+      title: '王令新聞：NPC戦略会議',
+      summary: '王令新聞「NPC戦略会議」ラウルもリリアも新たな策を練り、政治的火花が散る。',
+      body: [
+        '候補たちが酒宴を開き、師団の行動計画と魔法の支援をめぐって密談し始めた。',
+        'セシルは法の整備を、リリアは穏健な改革を、ラウルは強硬な再編を主張し、あなたはそれぞれに立ち向かう。',
+      ],
+    },
+    {
+      turn: 25,
+      title: '王令新聞：火種の兆し',
+      summary: '王令新聞「火種の兆し」内戦と外征の両方がささやかれ、防衛団も緊張を抱える。',
+      body: [
+        '城下では防衛団が内戦の噂を払い、師団の配備が人々の目を集めた。',
+        '隣国の圧力も聞こえ、あなたは双方の緊張を沈めつつ援軍を整えるよう命じる。',
+      ],
+    },
+    {
+      turn: 32,
+      title: '王令新聞：推薦の行方',
+      summary: '王令新聞「推薦の行方」最後の推薦と防衛団の整備が次の段階へ進む。',
+      body: [
+        '評議会は候補への推薦状を交換し、都市ごとの防衛団と師団の安定を重視し始めた。',
+        '王令新聞はあなたの調停が決選の鍵になるとし、師団の整備点検を報じる。',
+      ],
+    },
+    {
+      turn: 38,
+      title: '王令新聞：3年4月の前夜',
+      summary: '王令新聞「3年4月の前夜」王命を決める最後の週、王位の火花が立ち昇る。',
+      body: [
+        '3年4月が迫り、都市ごとの防衛団と師団が整い、王命の儀式を控えて静謐な緊張が漂う。',
+        '王令新聞はこの時点で最後の舌戦を伝え、あなたは世界の皮膚を再び辿る。',
+      ],
+    },
+  ];
+
+  const STORY_REIGN_MONTHS_FOR_END = 50 * 12;
+  const STORY_STABILITY_THRESHOLD = 75;
+  const STORY_STABILITY_STREAK_MONTHS = 5 * 12;
+  const STORY_BUILDING_TURN = 4;
+  const STORY_PROLOGUE_END_TURN = 1;
+  const STORY_POLITICS_OFFSET = 2;
+  const STORY_DIVISION_OFFSET = 6;
+
+  function createStoryScenarioState() {
+    return {
+      stage: STORY_SCENARIOS.ARRIVAL,
+      arrivalAnnounced: false,
+      investigationAnnounced: false,
+      successionNarrativeShown: false,
+      storyEventsUnlocked: false,
+      oppositionMode: false,
+      successionTurn: null,
+      failureAnnounced: false,
+      phaseFlags: createStoryPhaseFlags(),
+      preSuccessionIndex: 0,
+      stabilityStreakMonths: 0,
+      storyEndReady: false,
+      storyEndInvoked: false,
+      legacyAnnounced: false,
+    };
+  }
+
+  let storyScenarioState = createStoryScenarioState();
+
+  function ensureStoryScenarioState() {
+    if (!storyScenarioState) {
+      storyScenarioState = createStoryScenarioState();
+    }
+    return storyScenarioState;
+  }
+
+  function resetStoryScenarioState() {
+    storyScenarioState = createStoryScenarioState();
+  }
+
+  function restoreStoryScenarioState(data) {
+    if (data && typeof data === 'object') {
+      const copy = { ...createStoryScenarioState(), ...data };
+      copy.phaseFlags = { ...createStoryPhaseFlags(), ...(data.phaseFlags || {}) };
+      const validStages = new Set(Object.values(STORY_SCENARIOS));
+      copy.stage = validStages.has(copy.stage) ? copy.stage : STORY_SCENARIOS.ARRIVAL;
+      storyScenarioState = copy;
+    } else {
+      resetStoryScenarioState();
+    }
+  }
+
+  function publishStoryNews(summary, actorName = '王令新聞') {
+    if (!summary || typeof summary !== 'string') return;
+    const entry = [{ actorName, summary }];
+    showRoyalNewspaper(entry, currentTurn);
+  }
+
+  function createStoryNarrativeContainer(paragraphs) {
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    (paragraphs || []).forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    return container;
+  }
+
+  function showStoryNarrativeOverlay(opts) {
+    if (!storyOverlayRoot || !opts) return false;
+    const { id, title, paragraphs, summary, actionId, buttonLabel } = opts;
+    if (!id || overlayStack.find(o => o.id === id)) return false;
+    const container = createStoryNarrativeContainer(paragraphs);
+    showStoryOverlay({
+      id,
+      title,
+      body: container,
+      modal: false,
+      buttons: [{ label: buttonLabel || '了解', action: () => closeStoryOverlay(id) }],
+      animate: true,
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    if (summary) {
+      publishStoryNews(summary);
+      recordStoryAction('player', actionId, {
+        actorName: '王令新聞',
+        storyLabel: summary,
+      });
+    }
+    return true;
+  }
+
+  function showStoryFailureOverlay(state) {
+    if (!state || state.failureAnnounced) return false;
+    const paragraphs = [
+      '昨年の王は混迷を招き、市民は失政と暴政の名を囁いた。不満の火種は燻り続けていた。',
+      '王令新聞「去年の王の失策」は、統治の裂け目を伝え、新たな旗手への期待を重ねている。',
+      '現代からの転生者であるあなたは、沸き起こる喧騒の中心に召喚された。これが新しい歴史の胎動だ。',
+    ];
+    const summary = '王令新聞「去年の王の失策」混迷の一年を振り返る。';
+    const shown = showStoryNarrativeOverlay({
+      id: 'story-prologue-failure',
+      title: '去年の王の失策',
+      paragraphs,
+      summary,
+      actionId: 'story_prologue_failure',
+    });
+    if (shown) {
+      state.failureAnnounced = true;
+    }
+    return shown;
+  }
+
+  function maybeTriggerStoryFailure(state) {
+    if (!state) return false;
+    if (state.failureAnnounced) return false;
+    if (currentTurn > STORY_PROLOGUE_END_TURN) return false;
+    return showStoryFailureOverlay(state);
+  }
+
+  function maybeTriggerBuildingEra(state) {
+    if (!state || state.phaseFlags.buildingEra) return false;
+    if (state.stage !== STORY_SCENARIOS.PRE_SUCCESSION) return false;
+    if (!state.investigationAnnounced) return false;
+    if (currentTurn !== STORY_BUILDING_TURN) return false;
+    const paragraphs = [
+      '序章で世界を視たあなたは、まずインフラ・治安・魔法に集中する「建設の時代」に身を置く。',
+      '王令新聞は「建設の時代」と号し、都市ごとの防衛団・治安部隊・研究所の様子を細かく伝える。',
+      'NPCたちの評価はこの時期に蓄積され、やがて政治の舞台をどう彩るかが見えてくる。',
+    ];
+    const summary = '王令新聞「建設の時代」インフラ・治安・魔法に集約された行動が続く。';
+    const shown = showStoryNarrativeOverlay({
+      id: 'story-era-building',
+      title: '第一部：建設の時代',
+      paragraphs,
+      summary,
+      actionId: 'story_building_era',
+    });
+    if (shown) {
+      state.phaseFlags.buildingEra = true;
+    }
+    return shown;
+  }
+
+  function maybeTriggerPoliticalEra(state) {
+    if (!state || state.phaseFlags.politicsEra) return false;
+    if (!state.successionNarrativeShown || !state.storyEventsUnlocked) return false;
+    if (state.successionTurn == null) return false;
+    const triggerTurn = state.successionTurn + STORY_POLITICS_OFFSET;
+    if (currentTurn !== triggerTurn) return false;
+    const paragraphs = [
+      '王令新聞「政治の時代」は、法律・派閥・外交が解禁されたことを伝える。',
+      'NPCたちは能動的に動き出し、議会や外交使節の足跡が目立ち始めた。',
+      'あなたも一歩踏み出し、支持・勢力のバランスを見定めながら、新たな方針を模索する。',
+    ];
+    const summary = '王令新聞「政治の時代」法律と外交が列島を揺るがす。';
+    const shown = showStoryNarrativeOverlay({
+      id: 'story-era-politics',
+      title: '第二部：政治の時代',
+      paragraphs,
+      summary,
+      actionId: 'story_politics_era',
+    });
+    if (shown) {
+      state.phaseFlags.politicsEra = true;
+    }
+    return shown;
+  }
+
+  function maybeTriggerDivisionEra(state) {
+    if (!state || state.phaseFlags.divisionEra) return false;
+    if (!state.phaseFlags.politicsEra) return false;
+    if (state.successionTurn == null) return false;
+    const triggerTurn = state.successionTurn + STORY_DIVISION_OFFSET;
+    if (currentTurn !== triggerTurn) return false;
+    const rulerLine = roles.player === 'king'
+      ? '王であってもすべてを決められない孤独と無力感が胸を締めつける。'
+      : '王でなくとも、王位の影を背負って抗う掌握感が薄い。';
+    const paragraphs = [
+      '王令新聞「分裂の時代」は、内戦か権力闘争の火花が再び燃え上がったことを伝える。',
+      '師団と防衛団の一部は異なる旗の元に動き、都市間の緊張が高まる。',
+      rulerLine,
+    ];
+    const summary = '王令新聞「分裂の時代」内戦と権力闘争の火花が舞う。';
+    const shown = showStoryNarrativeOverlay({
+      id: 'story-era-division',
+      title: '第三部：分裂の時代',
+      paragraphs,
+      summary,
+      actionId: 'story_division_era',
+    });
+    if (shown) {
+      state.phaseFlags.divisionEra = true;
+    }
+    return shown;
+  }
+
+  function triggerStoryWorldEvent(eventId) {
+    if (!eventId) return;
+    const event = WORLD_EVENTS.find(evt => evt && evt.id === eventId);
+    if (!event) return;
+    applyWorldEvent(event);
+  }
+
+  function maybeTriggerPreSuccessionNews(state) {
+    if (!state || state.stage !== STORY_SCENARIOS.PRE_SUCCESSION) return false;
+    const idx = Number.isFinite(state.preSuccessionIndex) ? state.preSuccessionIndex : 0;
+    if (!PRE_SUCCESSION_NEWS_EVENTS.length || idx >= PRE_SUCCESSION_NEWS_EVENTS.length) return false;
+    const nextEvent = PRE_SUCCESSION_NEWS_EVENTS[idx];
+    if (currentTurn !== nextEvent.turn) return false;
+    const overlayId = `story-pre-succession-${idx}`;
+    if (overlayStack.find(o => o.id === overlayId)) return true;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    (nextEvent.body || []).forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    showStoryOverlay({
+      id: overlayId,
+      title: nextEvent.title,
+      body: container,
+      modal: false,
+      animate: true,
+      buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    publishStoryNews(nextEvent.summary);
+    recordStoryAction('player', 'story_pre_succession', {
+      actorName: '王令新聞',
+      storyLabel: nextEvent.summary,
+    });
+    state.preSuccessionIndex = idx + 1;
+    return true;
+  }
+
+  function announceStoryEndReady(state, reason) {
+    if (!state) return;
+    const summary = reason === 'time'
+      ? '王令新聞「長き治世の区切り」即位50年を経て譲位を問いかける。'
+      : '王令新聞「安定の継承」国家安定度が5年連続で高水準を保持し、譲位の扉が開く。';
+    publishStoryNews(summary);
+    recordStoryAction('player', 'story_end_ready', {
+      actorName: '王令新聞',
+      storyLabel: summary,
+    });
+    if (tileInfoEl) {
+      tileInfoEl.textContent = '王令新聞が譲る時が来たと報じています。';
+    }
+  }
+
+  function updateStoryEndCondition() {
+    if (!isStoryMode) return;
+    const state = ensureStoryScenarioState();
+    if (!state || state.storyEndReady) return;
+    if (state.successionTurn == null) return;
+    const stability = (getNationState().stability || 0);
+    if (stability >= STORY_STABILITY_THRESHOLD) {
+      state.stabilityStreakMonths = Math.min((state.stabilityStreakMonths || 0) + 1, STORY_STABILITY_STREAK_MONTHS);
+    } else {
+      state.stabilityStreakMonths = 0;
+    }
+    const reignMonths = Math.max(0, currentTurn - state.successionTurn);
+    const stabilityReady = state.stabilityStreakMonths >= STORY_STABILITY_STREAK_MONTHS;
+    if (reignMonths >= STORY_REIGN_MONTHS_FOR_END || stabilityReady) {
+      state.storyEndReady = true;
+      const reason = reignMonths >= STORY_REIGN_MONTHS_FOR_END ? 'time' : 'stability';
+      announceStoryEndReady(state, reason);
+    }
+  }
+
+  function showStoryArrivalOverlay(state) {
+    const overlayId = 'story-arrival';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const paragraphs = [
+      '現代からの旅人であるあなたは、失政を重ねて王都を去った前王のあとを受けて召喚され、混乱に満ちた城塞の中で身を起こした。',
+      '王令新聞は「王位の空白」と大見出しを打ち、都市の民衆は怯えと希望を同時に抱いている。前王の顔はどこにもなく、灰色の霧が街を覆う。',
+      'まずはこの国を歩き、インフラ、研究、そして民の声に触れること。王に相応しい姿を見せる前に、世界の皮膚を知るのだ。'
+    ];
+    paragraphs.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    showStoryOverlay({
+      id: overlayId,
+      title: '召喚の瞬間',
+      body: container,
+      modal: false,
+      buttons: [{ label: '理解した', action: () => closeStoryOverlay(overlayId) }],
+    });
+    publishStoryNews('前王の失政と失踪、国は混乱の縁に立っている。新たな治世の候補としてあなたが召喚された。');
+    recordStoryAction('player', 'story_arrival', { storyLabel: '現代から召喚され、王都の混乱を初めて視る' });
+    state.arrivalAnnounced = true;
+    state.stage = STORY_SCENARIOS.INVESTIGATION;
+  }
+
+  function showStoryInvestigationOverlay(state) {
+    const overlayId = 'story-investigation';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const paragraphs = [
+      'インフラ省の工房を歩き、放置された道路、疲弊した港、そして馬車鉄道の痕跡を目にした。整備しようにも資源は限られており、焦燥が匠の顔を覆っている。',
+      '魔法研究所では、炎をまとった試験管と古の碑文の破片が並んでいた。魔力はまだ頼りないが、そこには可能性の光も確かに存在する。',
+      '王令新聞は「候補者たちの提案の行列は尽きず、王推薦は進行中」と報じる。ラウル・グレイヴは軍備を掲げ、リリア・アステルは慈悲と学びを説き、セシル・ヴァレンは法整備を訴えている。'
+    ];
+    paragraphs.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    showStoryOverlay({
+      id: overlayId,
+      title: '世界の皮膚を知る',
+      body: container,
+      modal: false,
+      buttons: [{ label: '調査を続ける', action: () => closeStoryOverlay(overlayId) }],
+    });
+    publishStoryNews('現地視察を続ける中、候補者たちの提案は止まらず、王の推薦はゆっくりと進んでいる。');
+    recordStoryAction('player', 'story_investigation', { storyLabel: 'インフラと魔法研究を巡り、候補者の提案が続くのを見守る' });
+    state.investigationAnnounced = true;
+    state.stage = STORY_SCENARIOS.PRE_SUCCESSION;
+  }
+
+  function handleStorySuccessionNarrative(state) {
+    if (!successionResult) return;
+    const playerIsKing = successionResult.winnerId === 'player';
+    const overlayId = playerIsKing ? 'story-king-rule' : 'story-opposition';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const paragraphs = [];
+    if (playerIsKing) {
+      paragraphs.push(
+        '多くの候補者が肩を並べた中、あなたが王となった。王位に立つと、無数の視線があなたの判断を求めた。',
+        '王令新聞は「新王と内紛」と題して、未だ燻る不満と、防衛団・師団の再編の必要性を伝えている。王国はあなたの盾を求める。',
+        '内戦の火種がくすぶる中、あなたは敵を抑えるため防衛団を引き締め、忠誠ある師団に目を向ける。'
+      );
+    } else {
+      const winnerName = getCandidateName(successionResult.winnerId);
+      paragraphs.push(
+        `${winnerName} が王位に就いた。彼は強権的な姿勢を見せ、王令新聞も「新王の専制」だと騒ぎ立てる。`,
+        'あなたはリリア・アステルと共に政権に対抗する道を選ぶ。反体制派の結束を固め、次の転機を探る。',
+        '王令新聞は「反体制は暗渠の中で語られる」と伝え、あなたとリリアの名前を記事で探し始めている。'
+      );
+    }
+    paragraphs.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    showStoryOverlay({
+      id: overlayId,
+      title: playerIsKing ? '即位後の初陣' : '反体制の誓い',
+      body: container,
+      modal: false,
+      buttons: [{ label: '未来へ', action: () => closeStoryOverlay(overlayId) }],
+    });
+    const newsSummary = playerIsKing
+      ? '新王が即位した。王令新聞は内紛の気配を伝え、防衛団と師団を見直すよう促している。'
+      : '強権的なラウル・グレイヴが王位に就いた。リリア・アステルとあなたが反体制の火種を燃やしている。';
+    publishStoryNews(newsSummary);
+    const actionId = playerIsKing ? 'story_succession_win' : 'story_succession_loss';
+    recordStoryAction('player', actionId, { storyLabel: newsSummary });
+    state.successionNarrativeShown = true;
+    state.storyEventsUnlocked = true;
+    state.oppositionMode = !playerIsKing;
+    state.successionTurn = currentTurn;
+    state.stage = STORY_SCENARIOS.POST_SUCCESSION;
+    const primaryEvent = playerIsKing ? 'internal_tension_seed' : 'border_tension_seed';
+    setTimeout(() => triggerStoryWorldEvent(primaryEvent), 800);
+    setTimeout(() => triggerStoryWorldEvent('npc_strategy_session'), 1400);
+  }
+
+  function showStoryLegacyOverlay(state) {
+    const overlayId = 'story-prelude';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const paragraphs = [];
+    if (!state.oppositionMode) {
+      paragraphs.push(
+        '政権はわずかに安定を見せつつある。内戦の炎をいくつか押し込み、民衆は再び日常を取り戻した。',
+        '王令新聞は「王は未来の世代を選ぶ」と見出しを打つ。あなたは次にこの国を託す者を心に描き、次の長を選ぶ準備を始める。'
+      );
+    } else {
+      paragraphs.push(
+        '反体制派としてのネットワークが育ちつつある。リリア・アステルは民衆に語り掛け、あなたは再び王位を目指す盟友を探している。',
+        '王令新聞は「反体制の選択肢」と題して、あなたとリリアの動きを追う。次の長を決めるのは、この抵抗の中心になるだろう。'
+      );
+    }
+    paragraphs.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    showStoryOverlay({
+      id: overlayId,
+      title: '次の長の構想',
+      body: container,
+      modal: false,
+      buttons: [{ label: 'その日を迎える', action: () => closeStoryOverlay(overlayId) }],
+    });
+    const summary = state.oppositionMode
+      ? '反体制の候補が台頭し、王令新聞は次の長を誰が担うのかを煽っている。'
+      : '政権安定の兆し。王令新聞は次の長を選ぶ準備を進めていると報じる。';
+    publishStoryNews(summary);
+    recordStoryAction('player', 'story_legacy', { storyLabel: summary });
+    state.legacyAnnounced = true;
+    state.stage = STORY_SCENARIOS.LEGACY;
+  }
+
   const overlayStack = []; // { id, title, body, buttons:[{label, action}], modal:boolean, el }
   let overlayCounter = 0;
+  let lastRoyalNewsOverlayId = null;
 
   const SE_SOURCES = {
     major: './music/se/fanfare.wav',
@@ -2659,6 +3191,9 @@
 
   function closeStoryOverlay(id) {
       removeMobileOverlayEntry(id);
+      if (id && lastRoyalNewsOverlayId === id) {
+        lastRoyalNewsOverlayId = null;
+      }
       const idx = overlayStack.findIndex(o => o.id === id);
       if (idx === -1) return;
       const overlay = overlayStack[idx];
@@ -2844,9 +3379,10 @@
 
     function startStoryMode() {
       resetStoryJournal();
+      resetStoryScenarioState();
       isStoryMode = true;
       currentTurn = 0;
-      successionTurnPlanned = 27;
+      successionTurnPlanned = 40;
     initCharacters();
     generate();
     resetActionSystem(true);
@@ -2855,12 +3391,13 @@
     timeControl.speed = 0; // Pause at start
     updateControlButtons();
     playSystemSound('major');
-    switchToMap('ストーリーモードを開始しました');
-    if (!storyFlags.introShown) {
-      storyFlags.introShown = true;
-      showIntroStoryOverlay();
+      switchToMap('ストーリーモードを開始しました');
+      if (!storyFlags.introShown) {
+        storyFlags.introShown = true;
+        showIntroStoryOverlay();
+      }
+      maybeTriggerStorySequence();
     }
-  }
 
         const candidateActionLog = [];
         // 各ターン（1か月）に実行できる王候補行動は 1 回まで
@@ -3180,6 +3717,95 @@
         function getResearchInstituteForCity(cityId) {
           const list = getResearchInstitutes();
           return list.find(entry => entry.cityId === cityId);
+        }
+
+        function normalizeRegionIndex(regionIndex) {
+          const count = Math.max(1, REGION_NAMES.length);
+          if (!Number.isFinite(regionIndex)) return 0;
+          const normalized = Math.floor(regionIndex);
+          return ((normalized % count) + count) % count;
+        }
+
+        function getCityRegionIndex(cityOrId) {
+          if (!cityOrId) return 0;
+          const rawId = typeof cityOrId === 'number' ? cityOrId : (cityOrId.id ?? null);
+          if (!Number.isFinite(rawId)) return 0;
+          return normalizeRegionIndex(Math.floor(rawId));
+        }
+
+        function getRegionLabel(regionIndex) {
+          const idx = normalizeRegionIndex(regionIndex);
+          return REGION_NAMES[idx] || `地方${idx + 1}`;
+        }
+
+        function getMilitaryState() {
+          const state = getWorldState();
+          if (!state.military || typeof state.military !== 'object') {
+            state.military = {};
+          }
+          if (!state.military.cities || typeof state.military.cities !== 'object') {
+            state.military.cities = {};
+          }
+          if (!state.military.regions || typeof state.military.regions !== 'object') {
+            state.military.regions = {};
+          }
+          return state.military;
+        }
+
+        function getCityDefenseCorps(cityId) {
+          if (!Number.isFinite(cityId)) return 0;
+          const military = getMilitaryState();
+          const value = Number(military.cities[String(cityId)]);
+          if (!Number.isFinite(value)) return 0;
+          return clamp(value, 0, MAX_CITY_DEFENSE_CORPS);
+        }
+
+        function setCityDefenseCorps(cityId, amount, options) {
+          if (!Number.isFinite(cityId)) return false;
+          const military = getMilitaryState();
+          const key = String(cityId);
+          const sanitized = clamp(Math.round(amount || 0), 0, MAX_CITY_DEFENSE_CORPS);
+          if (military.cities[key] === sanitized && !(options && options.force)) {
+            return false;
+          }
+          military.cities[key] = sanitized;
+          if (!options || !options.silent) {
+            markWorldDirty();
+          }
+          return true;
+        }
+
+        function adjustCityDefenseCorps(cityId, delta) {
+          const current = getCityDefenseCorps(cityId);
+          return setCityDefenseCorps(cityId, current + (delta || 0));
+        }
+
+        function getRegionDivisions(regionIndex) {
+          const idx = normalizeRegionIndex(regionIndex);
+          const military = getMilitaryState();
+          const value = Number(military.regions[String(idx)]);
+          if (!Number.isFinite(value)) return 0;
+          return clamp(value, 0, MAX_REGION_DIVISIONS);
+        }
+
+        function setRegionDivisions(regionIndex, amount, options) {
+          const idx = normalizeRegionIndex(regionIndex);
+          const military = getMilitaryState();
+          const key = String(idx);
+          const sanitized = clamp(Math.round(amount || 0), 0, MAX_REGION_DIVISIONS);
+          if (military.regions[key] === sanitized && !(options && options.force)) {
+            return false;
+          }
+          military.regions[key] = sanitized;
+          if (!options || !options.silent) {
+            markWorldDirty();
+          }
+          return true;
+        }
+
+        function adjustRegionDivisions(regionIndex, delta) {
+          const current = getRegionDivisions(regionIndex);
+          return setRegionDivisions(regionIndex, current + (delta || 0));
         }
 
         function createMagicResearchSection(overlayId) {
@@ -4001,6 +4627,10 @@ function renderHorsecarLineList() {
           return picked;
         }
 
+        function areStoryEventsUnlocked() {
+          return storyScenarioState && !!storyScenarioState.storyEventsUnlocked;
+        }
+
         function createEventContext() {
           const affectedCities = new Set();
           return {
@@ -4045,6 +4675,24 @@ function renderHorsecarLineList() {
                 })
                 .filter(Boolean);
               return names.join(' / ');
+            },
+            adjustCityDefense(cityId, delta) {
+              if (!Number.isFinite(cityId)) return;
+              const current = getCityDefenseCorps(cityId);
+              setCityDefenseCorps(cityId, current + (delta || 0));
+            },
+            getCityDefense(cityId) {
+              return getCityDefenseCorps(cityId);
+            },
+            adjustRegionDivisions(regionIndex, delta) {
+              if (!Number.isFinite(regionIndex)) return;
+              return adjustRegionDivisions(regionIndex, delta);
+            },
+            getRegionDivisions(regionIndex) {
+              return getRegionDivisions(regionIndex);
+            },
+            getRegionLabel(regionIndex) {
+              return getRegionLabel(regionIndex);
             },
             worldState: getWorldState(),
           };
@@ -4296,7 +4944,316 @@ function renderHorsecarLineList() {
               },
             ],
           },
+          {
+            id: 'foreign-invasion',
+            title: '隣国の侵攻',
+            description: '敵国の主力が国境を押し上げてきた。師団と都市の防衛団をどう活かすかが勝敗を分ける。',
+            choices: [
+              {
+                label: '師団を前線へ',
+                description: '脆弱な地方師団を集めて敵を押し戻す。',
+                handler: (ctx) => {
+                  const regionCount = Math.max(1, REGION_NAMES.length);
+                  const regionEntries = [];
+                  for (let idx = 0; idx < regionCount; idx++) {
+                    regionEntries.push({ idx, divisions: ctx.getRegionDivisions(idx) });
+                  }
+                  regionEntries.sort((a, b) => a.divisions - b.divisions);
+                  const target = regionEntries[0];
+                  ctx.adjustGlobalFunds(-180 - Math.max(0, 20 - target.divisions) * 4);
+                  ctx.adjustRegionDivisions(target.idx, -1);
+                  const regionCities = cities.filter(city => city && getCityRegionIndex(city) === target.idx);
+                  if (!regionCities.length) {
+                    ctx.pickCities(2).forEach(city => {
+                      ctx.adjustCityStat(city.id, 'military', 12);
+                      ctx.adjustCityStat(city.id, 'stability', 4);
+                    });
+                  } else {
+                    regionCities.forEach(city => {
+                      ctx.adjustCityStat(city.id, 'military', 15 + target.divisions * 2);
+                      ctx.adjustCityStat(city.id, 'stability', 6);
+                      ctx.adjustCityDefense(city.id, -3);
+                    });
+                  }
+                  ctx.adjustActorAuthority('marshal', -4);
+                },
+              },
+              {
+                label: '防衛団を動員',
+                description: '都市単位の防衛団で侵攻を遅らせる。',
+                handler: (ctx) => {
+                  const defenders = ctx.pickCities(2);
+                  if (!defenders.length) {
+                    ctx.forEachCity(c => ctx.adjustCityStat(c.id, 'stability', 2));
+                    return;
+                  }
+                  defenders.forEach(city => {
+                    const defense = ctx.getCityDefense(city.id);
+                    ctx.adjustCityStat(city.id, 'military', 10 + Math.floor(defense * 0.5));
+                    ctx.adjustCityStat(city.id, 'stability', 5);
+                    ctx.adjustCityDefense(city.id, -Math.min(defense, 4));
+                  });
+                  ctx.adjustGlobalFunds(-120);
+                },
+              },
+              {
+                label: '外交で時間稼ぎ',
+                description: '補給を遅らせ、外政で危機を引き延ばす。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-70);
+                  ctx.adjustActorAuthority('council', 2);
+                  ctx.pickCities(3).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', 3);
+                    ctx.adjustCityStat(city.id, 'military', -6);
+                  });
+                },
+              },
+            ],
+          },
+          {
+            id: 'internal-strife',
+            title: '地方の内戦',
+            description: '有力者間の反目が武装闘争に発展しそうだ。師団と防衛団をどう調停するかが問われる。',
+            choices: [
+              {
+                label: '軍と防衛団を派遣',
+                description: '師団と防衛団の共闘で秩序を守る。',
+                handler: (ctx) => {
+                  const city = ctx.pickCities(1)[0];
+                  if (!city) {
+                    ctx.adjustGlobalFunds(-90);
+                    return;
+                  }
+                  const regionIndex = getCityRegionIndex(city);
+                  const defense = ctx.getCityDefense(city.id);
+                  const divisionBonus = ctx.getRegionDivisions(regionIndex);
+                  ctx.adjustCityStat(city.id, 'military', 12 + Math.floor(defense * 0.5) + divisionBonus * 2);
+                  ctx.adjustCityStat(city.id, 'stability', 8 + divisionBonus * 2);
+                  ctx.adjustCityDefense(city.id, -Math.min(defense, 6));
+                  ctx.adjustRegionDivisions(regionIndex, -1);
+                  ctx.adjustGlobalFunds(-130);
+                  ctx.adjustActorAuthority('marshal', -2);
+                },
+              },
+              {
+                label: '説得と譲歩',
+                description: '講和と改革で民心を取り戻す。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-90);
+                  ctx.adjustActorAuthority('council', 3);
+                  ctx.pickCities(3).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', 4);
+                  });
+                  ctx.forEachCity(c => ctx.adjustCityStat(c.id, 'military', -3));
+                },
+              },
+              {
+                label: '武力で一掃',
+                description: '軍を投入し、犠牲を厭わず鎮圧する。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-40);
+                  ctx.adjustActorAuthority('marshal', 5);
+                  ctx.pickCities(2).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', -11);
+                    ctx.adjustCityStat(city.id, 'military', 9);
+                    ctx.adjustCityDefense(city.id, -2);
+                  });
+                },
+              },
+            ],
+          },
+          {
+            id: 'border_tension_seed',
+            title: '国境での密談',
+            description: () => `${formatNPCSummary()} が国境の幕営で軍備の配分を論じている。火種を払うか、そのまま炎上させるか、王の判断が必要だ。`,
+            storyOnly: true,
+            choices: [
+              {
+                label: 'Marshalの先制案',
+                description: '秘策をいち早く取り、威勢を見せる。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-100);
+                  ctx.adjustActorAuthority('marshal', 3);
+                  ctx.adjustRegionDivisions(0, 1);
+                  const city = ctx.pickCities(1)[0];
+                  if (city) {
+                    ctx.adjustCityStat(city.id, 'military', 12);
+                    ctx.adjustCityStat(city.id, 'stability', -3);
+                    ctx.adjustCityDefense(city.id, -2);
+                  }
+                },
+                nextEvent: FOREIGN_WAR_EVENT,
+              },
+              {
+                label: 'Princessの外交',
+                description: '対話と贈り物で火を消す。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-65);
+                  ctx.adjustActorAuthority('princess', 4);
+                  ctx.adjustRegionDivisions(0, -1);
+                  ctx.pickCities(2).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', 5);
+                  });
+                },
+              },
+              {
+                label: '評議会の策動',
+                description: '評議会候補が逆に威嚇し、敵の警戒を煽る。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-50);
+                  ctx.adjustActorAuthority('council', 2);
+                  ctx.adjustRegionDivisions(1, 1);
+                  const city = ctx.pickCities(1)[0];
+                  if (city) {
+                    ctx.adjustCityStat(city.id, 'military', 8);
+                    ctx.adjustCityStat(city.id, 'stability', 3);
+                  }
+                  ctx.nextEvent = FOREIGN_WAR_EVENT;
+                },
+              },
+            ],
+          },
+          {
+            id: 'internal_tension_seed',
+            title: '内紛の火種',
+            description: () => `${formatNPCSummary()} が地方で反逆の噂を交わし、民心が揺らいでいる。`,
+            storyOnly: true,
+            choices: [
+              {
+                label: 'Marshalが鎮圧',
+                description: '武力で沈めるが、反感も誘う。',
+                handler: (ctx) => {
+                  const city = ctx.pickCities(1)[0];
+                  ctx.adjustGlobalFunds(-90);
+                  ctx.adjustActorAuthority('marshal', -2);
+                  if (city) {
+                    ctx.adjustCityStat(city.id, 'military', 14);
+                    ctx.adjustCityStat(city.id, 'stability', -8);
+                    ctx.adjustCityDefense(city.id, -4);
+                  }
+                  ctx.nextEvent = CIVIL_WAR_EVENT;
+                },
+              },
+              {
+                label: 'Princessが妥協',
+                description: '法と恩赦で和らげる。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-70);
+                  ctx.adjustActorAuthority('princess', 3);
+                  ctx.pickCities(3).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', 6);
+                  });
+                  ctx.forEachCity(city => {
+                    ctx.adjustCityStat(city.id, 'military', -2);
+                  });
+                  ctx.adjustRegionDivisions(1, -1);
+                },
+              },
+              {
+                label: '評議会の扇動',
+                description: '分断でおとり、勢いを盗む。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-40);
+                  ctx.adjustActorAuthority('council', 4);
+                  ctx.pickCities(2).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', -6);
+                    ctx.adjustCityStat(city.id, 'military', 9);
+                    ctx.adjustCityDefense(city.id, -1);
+                  });
+                  ctx.nextEvent = CIVIL_WAR_EVENT;
+                },
+              },
+            ],
+          },
+          {
+            id: 'npc_strategy_session',
+            title: '候補者たちの軍略会議',
+            description: () => `${formatNPCSummary()} が軍略会議を開き、火花が散っている。`,
+            storyOnly: true,
+            choices: [
+              {
+                label: '共闘して計画を利用',
+                description: '彼らを抑え込みつつ軍備を使わせる。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-80);
+                  ctx.adjustActorAuthority('marshal', 2);
+                  const city = ctx.pickCities(1)[0];
+                  if (city) {
+                    ctx.adjustCityDefense(city.id, 3);
+                    ctx.adjustCityStat(city.id, 'military', 7);
+                  }
+                  ctx.nextEvent = Math.random() < 0.6 ? FOREIGN_WAR_EVENT : CIVIL_WAR_EVENT;
+                },
+              },
+              {
+                label: '陰謀を暴露',
+                description: '評議会候補を牽制し、威信を高める。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-40);
+                  ctx.adjustActorAuthority('council', -2);
+                  ctx.adjustActorAuthority('marshal', 3);
+                  ctx.pickCities(2).forEach(city => {
+                    ctx.adjustCityStat(city.id, 'stability', 4);
+                    ctx.adjustCityStat(city.id, 'military', 3);
+                  });
+                },
+              },
+              {
+                label: '知恵を吸収',
+                description: '彼らの焦点を利用して対抗策を仕込む。',
+                handler: (ctx) => {
+                  ctx.adjustGlobalFunds(-60);
+                  ctx.adjustActorAuthority('player', 2);
+                  const city = ctx.pickCities(1)[0];
+                  if (city) {
+                    ctx.adjustCityDefense(city.id, 2);
+                    ctx.adjustCityStat(city.id, 'stability', 5);
+                  }
+                  ctx.nextEvent = CIVIL_WAR_EVENT;
+                },
+              },
+            ],
+          },
         ];
+
+        function maybeTriggerStorySequence() {
+          if (!isStoryMode) return;
+          const state = ensureStoryScenarioState();
+          if (maybeTriggerStoryFailure(state)) return;
+          if (!state.arrivalAnnounced) {
+            showStoryArrivalOverlay(state);
+            return;
+          }
+          if (!state.investigationAnnounced &&
+            state.stage === STORY_SCENARIOS.INVESTIGATION &&
+            currentTurn >= 2) {
+            showStoryInvestigationOverlay(state);
+            return;
+          }
+          if (maybeTriggerBuildingEra(state)) {
+            return;
+          }
+          if (state.stage === STORY_SCENARIOS.PRE_SUCCESSION && maybeTriggerPreSuccessionNews(state)) {
+            return;
+          }
+          if (!state.successionNarrativeShown && successionResult) {
+            handleStorySuccessionNarrative(state);
+            return;
+          }
+          if (maybeTriggerPoliticalEra(state)) {
+            return;
+          }
+          if (maybeTriggerDivisionEra(state)) {
+            return;
+          }
+          if (state.successionNarrativeShown &&
+            !state.legacyAnnounced &&
+            state.successionTurn != null &&
+            currentTurn >= state.successionTurn + 6) {
+            showStoryLegacyOverlay(state);
+            return;
+          }
+        }
 
         function applyWorldEvent(event) {
           if (!event) return;
@@ -4317,9 +5274,12 @@ function renderHorsecarLineList() {
           paper.style.padding = '14px';
           paper.style.border = '1px solid #444';
           paper.style.fontFamily = "'Times New Roman', serif";
+          const descriptionText = typeof event.description === 'function'
+            ? event.description()
+            : (event.description || '');
           paper.innerHTML = `
             <div style="font-size:18px; font-weight:bold; margin-bottom:8px; border-bottom:2px double #333; padding-bottom:4px;">${event.title}</div>
-            <div style="font-size:14px; line-height:1.6;">${event.description}</div>
+            <div style="font-size:14px; line-height:1.6;">${descriptionText}</div>
           `;
           container.appendChild(paper);
 
@@ -4374,7 +5334,10 @@ function renderHorsecarLineList() {
         function maybeTriggerWorldEvent() {
           if (!successionResult) return;
           if (Math.random() > 0.08) return;
-          const available = WORLD_EVENTS.filter(evt => !evt.enabled || evt.enabled());
+          const available = WORLD_EVENTS.filter(evt => (
+            (!evt.storyOnly || areStoryEventsUnlocked()) &&
+            (!evt.enabled || evt.enabled())
+          ));
           if (!available.length) return;
           const event = available[Math.floor(Math.random() * available.length)];
           applyWorldEvent(event);
@@ -4577,6 +5540,9 @@ function renderHorsecarLineList() {
       case 'nation-overview':
         openNationOverviewOverlay();
         break;
+      case 'manage-military':
+        openMilitaryCompositionOverlay();
+        break;
       case 'rename-city':
         openCityRenameOverlay();
         break;
@@ -4586,6 +5552,9 @@ function renderHorsecarLineList() {
           break;
         }
         openAbdicationOverlay();
+        break;
+      case 'story-abdicate':
+        handleStoryEndRequest();
         break;
         case 'time-stop':
           timeControl.speed = 0;
@@ -4675,6 +5644,8 @@ function renderHorsecarLineList() {
 
     function updateControlButtons() {
     const timeLocked = isStoryMode && successionTurnPlanned != null && currentTurn < successionTurnPlanned;
+    const storyState = storyScenarioState;
+    const storyEndReady = !!(storyState && storyState.storyEndReady && !storyState.storyEndInvoked);
     hudButtons.forEach(btn => {
       const action = btn.dataset.action;
       let active = false;
@@ -4700,6 +5671,11 @@ function renderHorsecarLineList() {
         active = false;
         disabled = !isStoryMode;
       }
+      else if (action === 'story-abdicate') {
+        btn.style.display = storyEndReady ? '' : 'none';
+        active = false;
+        disabled = !storyEndReady;
+      }
       else if (action === 'time-stop') active = timeControl.speed === 0;
         else if (action === 'time-1x') active = timeControl.speed === 1;
         else if (action === 'time-2x') {
@@ -4722,7 +5698,7 @@ function renderHorsecarLineList() {
       }
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        if (['toggle-names','time-2x','time-3x','select-capital','develop','story-timeline'].includes(action)) {
+        if (['toggle-names','time-2x','time-3x','select-capital','develop','story-timeline','story-abdicate'].includes(action)) {
             btn.disabled = disabled;
           } else if (btn.disabled) {
             btn.disabled = false;
@@ -4752,6 +5728,10 @@ function renderHorsecarLineList() {
         }
     refreshPanelActionStates();
     updateMobileSpeedButton();
+    if (mobileStoryEndBtn) {
+      mobileStoryEndBtn.style.display = storyEndReady ? '' : 'none';
+      mobileStoryEndBtn.disabled = !storyEndReady;
+    }
   }
 
   function handleTouchAction(action) {
@@ -4834,8 +5814,14 @@ function renderHorsecarLineList() {
       case 'rename-city':
         openCityRenameOverlay();
         break;
+      case 'manage-military':
+        openMilitaryCompositionOverlay();
+        break;
       case 'abdicate':
         openAbdicationOverlay();
+        break;
+      case 'story-abdicate':
+        handleStoryEndRequest();
         break;
       case 'return-title':
         hideGameOver();
@@ -5321,6 +6307,262 @@ function renderHorsecarLineList() {
     });
   }
 
+  function openMilitaryCompositionOverlay() {
+    if (appState !== 'map' || !worldReady || !storyOverlayRoot) return;
+    const overlayId = 'military-organization';
+    if (overlayStack.find(o => o.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '12px';
+
+    const outline = document.createElement('div');
+    outline.textContent = '国土を守る部隊を配備し、地方の師団を編成してください。';
+    outline.style.fontSize = '12px';
+    outline.style.opacity = '0.8';
+    container.appendChild(outline);
+
+    function createCityRow(city) {
+      if (!city) return null;
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.padding = '6px 8px';
+      row.style.borderRadius = '6px';
+      row.style.background = 'rgba(255,255,255,0.04)';
+      row.style.flexWrap = 'wrap';
+      row.style.gap = '6px';
+
+      const cityLabel = document.createElement('div');
+      cityLabel.style.fontSize = '12px';
+      cityLabel.style.fontWeight = '600';
+      const cityName = city.name || `都市${city.id}`;
+      const regionName = getRegionLabel(getCityRegionIndex(city));
+      cityLabel.textContent = `${cityName}（${regionName}）`;
+      row.appendChild(cityLabel);
+
+      const controlWrap = document.createElement('div');
+      controlWrap.style.display = 'flex';
+      controlWrap.style.alignItems = 'center';
+      controlWrap.style.gap = '6px';
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '0';
+      input.max = String(MAX_CITY_DEFENSE_CORPS);
+      input.step = '5';
+      input.value = getCityDefenseCorps(city.id);
+      input.style.width = '80px';
+      input.style.padding = '4px 6px';
+      input.style.borderRadius = '4px';
+      input.style.border = '1px solid rgba(255,255,255,0.25)';
+      input.style.background = '#0b111f';
+      input.style.color = '#f5f5f5';
+      controlWrap.appendChild(input);
+
+      const inputLabel = document.createElement('span');
+      inputLabel.style.fontSize = '11px';
+      inputLabel.style.opacity = '0.7';
+      inputLabel.textContent = '防衛団数';
+      controlWrap.appendChild(inputLabel);
+
+      function syncCityDefense() {
+        const requested = Number(input.value);
+        const next = clamp(Math.round(requested || 0), 0, MAX_CITY_DEFENSE_CORPS);
+        input.value = next;
+        setCityDefenseCorps(city.id, next);
+        updateHudStats();
+        if (tileInfoEl) {
+          tileInfoEl.textContent = `${cityName} の防衛団を ${next} に配置しました。`;
+        }
+      }
+      input.addEventListener('change', syncCityDefense);
+
+      row.appendChild(controlWrap);
+      return row;
+    }
+
+    const citySection = document.createElement('div');
+    citySection.style.display = 'flex';
+    citySection.style.flexDirection = 'column';
+    citySection.style.gap = '8px';
+    citySection.style.border = '1px solid rgba(255,255,255,0.08)';
+    citySection.style.borderRadius = '10px';
+    citySection.style.padding = '10px';
+    const cityTitle = document.createElement('strong');
+    cityTitle.textContent = '都市の防衛団';
+    citySection.appendChild(cityTitle);
+    const cityList = document.createElement('div');
+    cityList.style.display = 'flex';
+    cityList.style.flexDirection = 'column';
+    cityList.style.gap = '6px';
+    cityList.style.maxHeight = '260px';
+    cityList.style.overflowY = 'auto';
+    const availableCities = cities.filter(city => city && typeof city.id !== 'undefined');
+    const sortedCities = [...availableCities].sort((a, b) => {
+      const nameA = (a.name || '');
+      const nameB = (b.name || '');
+      if (nameA === nameB) return (a.id || 0) - (b.id || 0);
+      return nameA.localeCompare(nameB);
+    });
+    if (!sortedCities.length) {
+      const empty = document.createElement('div');
+      empty.textContent = '都市がまだありません';
+      empty.style.fontSize = '12px';
+      empty.style.opacity = '0.6';
+      cityList.appendChild(empty);
+    } else {
+      sortedCities.forEach(city => {
+        const row = createCityRow(city);
+        if (row) cityList.appendChild(row);
+      });
+    }
+    citySection.appendChild(cityList);
+    container.appendChild(citySection);
+
+    const regionSection = document.createElement('div');
+    regionSection.style.display = 'flex';
+    regionSection.style.flexDirection = 'column';
+    regionSection.style.gap = '8px';
+    regionSection.style.border = '1px solid rgba(255,255,255,0.08)';
+    regionSection.style.borderRadius = '10px';
+    regionSection.style.padding = '10px';
+    const regionTitle = document.createElement('strong');
+    regionTitle.textContent = '地方師団';
+    regionSection.appendChild(regionTitle);
+    const regionList = document.createElement('div');
+    regionList.style.display = 'flex';
+    regionList.style.flexDirection = 'column';
+    regionList.style.gap = '6px';
+
+    for (let idx = 0; idx < Math.max(1, REGION_NAMES.length); idx++) {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.padding = '6px 8px';
+      row.style.borderRadius = '6px';
+      row.style.background = 'rgba(255,255,255,0.03)';
+      row.style.gap = '8px';
+
+      const label = document.createElement('div');
+      label.style.fontSize = '12px';
+      label.textContent = `${getRegionLabel(idx)} 師団`;
+      row.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '0';
+      input.max = String(MAX_REGION_DIVISIONS);
+      input.step = '1';
+      input.value = getRegionDivisions(idx);
+      input.style.width = '66px';
+      input.style.padding = '4px 6px';
+      input.style.borderRadius = '4px';
+      input.style.border = '1px solid rgba(255,255,255,0.25)';
+      input.style.background = '#0b111f';
+      input.style.color = '#f5f5f5';
+      function syncRegion() {
+        const requested = Number(input.value);
+        const next = clamp(Math.round(requested || 0), 0, MAX_REGION_DIVISIONS);
+        input.value = next;
+        setRegionDivisions(idx, next);
+        updateHudStats();
+        if (tileInfoEl) {
+          tileInfoEl.textContent = `${getRegionLabel(idx)} に ${next} 師団を据えました`;
+        }
+      }
+      input.addEventListener('change', syncRegion);
+      row.appendChild(input);
+      const note = document.createElement('span');
+      note.style.fontSize = '11px';
+      note.style.opacity = '0.7';
+      note.textContent = '防衛/展開力';
+      row.appendChild(note);
+      regionList.appendChild(row);
+    }
+
+    regionSection.appendChild(regionList);
+    container.appendChild(regionSection);
+
+    showStoryOverlay({
+      id: overlayId,
+      title: '軍備編成',
+      body: container,
+      buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
+      mobileTitle: '軍備編成',
+      width: Math.min(520, window.innerWidth - 40),
+    });
+  }
+
+  function triggerStoryEndRoll() {
+    const state = ensureStoryScenarioState();
+    if (!state || !state.storyEndReady || state.storyEndInvoked) return;
+    state.storyEndInvoked = true;
+    timeControl.speed = 0;
+    updateControlButtons();
+    const overlayId = 'story-end-roll';
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '8px';
+    container.style.minWidth = '280px';
+    const lines = [
+      '王都は静寂を取り戻し、王令新聞が最後の号外を掲げた。',
+      '防衛団と師団は任を終え、内戦と侵攻の火種は鎮まりつつある。',
+      'あなたは一度きりの譲位を決意し、民へ次の世代を託す。',
+    ];
+    lines.forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    const credit = document.createElement('div');
+    credit.className = 'story-end-credit';
+    credit.textContent = 'Script:Codex Project:dotfun';
+    credit.style.marginTop = '10px';
+    credit.style.fontSize = '12px';
+    credit.style.opacity = '0.8';
+    container.appendChild(credit);
+    showStoryOverlay({
+      id: overlayId,
+      title: '王都の終章',
+      body: container,
+      modal: true,
+      center: true,
+      animate: true,
+      buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    if (tileInfoEl) {
+      tileInfoEl.textContent = '「Script:Codex Project:dotfun」— 物語は終わりを迎えました。';
+    }
+    const summary = '王令新聞「譲位の終章」ストーリーが幕を閉じる。';
+    publishStoryNews(summary);
+    recordStoryAction('player', 'story_end_roll', {
+      actorName: '王令新聞',
+      storyLabel: summary,
+    });
+  }
+
+  function handleStoryEndRequest() {
+    if (!isStoryMode) {
+      if (tileInfoEl) tileInfoEl.textContent = 'ストーリーモードでのみ譲ることができます。';
+      return;
+    }
+    const state = ensureStoryScenarioState();
+    if (!state || !state.storyEndReady) {
+      if (tileInfoEl) tileInfoEl.textContent = '王令新聞が譲位を促すまで、譲ることはできません。';
+      return;
+    }
+    if (state.storyEndInvoked) {
+      if (tileInfoEl) tileInfoEl.textContent = 'ストーリーは既に終了しています。';
+      return;
+    }
+    triggerStoryEndRoll();
+  }
+
   function performAbdication(targetId, overlayId) {
     if (roles.player !== 'king') {
       if (tileInfoEl) tileInfoEl.textContent = '王位を譲れるのは現王だけです。';
@@ -5681,12 +6923,12 @@ function renderHorsecarLineList() {
       },
       funds: globalFunds,
       worldState: worldStateSnapshot,
-      story: {
-        isStoryMode: isStoryMode,
-        playerProfile: {
-          name: player.profile.name,
-          gender: player.profile.gender,
-        },
+        story: {
+          isStoryMode: isStoryMode,
+          playerProfile: {
+            name: player.profile.name,
+            gender: player.profile.gender,
+          },
         turn: currentTurn,
         successionTurnPlanned,
         characters: characters ? JSON.parse(JSON.stringify(characters)) : null,
@@ -5697,8 +6939,9 @@ function renderHorsecarLineList() {
           princess: roles.princess,
           council: roles.council,
         },
-        flags: { ...storyFlags },
-        journal: storyActionTimeline.slice(-STORY_TIMELINE_LIMIT),
+          flags: { ...storyFlags },
+          storyScenario: storyScenarioState ? { ...storyScenarioState } : null,
+          journal: storyActionTimeline.slice(-STORY_TIMELINE_LIMIT),
         aiLog: aiActionLog.slice(0, AI_LOG_LIMIT).map(entry => ({
           turn: entry.turn,
           text: entry.text,
@@ -6218,7 +7461,8 @@ function renderHorsecarLineList() {
         storyFlags.firstCapitalSet = false;
         initCharacters();
       }
-    restoreStoryHistory(data.story);
+      restoreStoryScenarioState(data.story ? data.story.storyScenario : null);
+      restoreStoryHistory(data.story);
     globalFunds = (typeof data.funds === 'number') ? data.funds : 3000;
     cityDistanceField = computeCityDistanceField();
     worldReady = true;
@@ -6232,6 +7476,7 @@ function renderHorsecarLineList() {
     updateControlButtons();
     resetChunkStore();
     render();
+    maybeTriggerStorySequence();
   }
 
   // --- マップ ---
@@ -6671,7 +7916,7 @@ let railMaintenanceLastTurn = 0;
     const SAVE_KEY = getSlotKey(DEFAULT_SAVE_SLOT);
     // デフォルトの王決定ターン（3年4月を想定、ターン0=1年1月）
     if (typeof successionTurnPlanned !== 'number' || !Number.isFinite(successionTurnPlanned)) {
-      successionTurnPlanned = 27;
+      successionTurnPlanned = 40;
     }
 
   function sumSupportValues(support) {
@@ -9392,6 +10637,12 @@ function estimateScheduleEconomy(schedule) {
     const dateLabel = formatGameDate();
     const turnLabel = formatSuccessionCountdown();
     hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#d8dde9;">${dateLabel} / ${turnLabel}</span>`;
+    const militaryState = getMilitaryState();
+    const totalDefense = Object.values(militaryState.cities).reduce((sum, entry) => sum + (Number(entry) || 0), 0);
+    const totalDivisions = Object.values(militaryState.regions).reduce((sum, entry) => sum + (Number(entry) || 0), 0);
+    if (totalDefense || totalDivisions) {
+      hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#ffae6f;">軍備：防衛団 ${totalDefense} / 師団 ${totalDivisions}</span>`;
+    }
     if (railRevenueLastTurn || railMaintenanceLastTurn || railPassengerFlow) {
       const railNet = railRevenueLastTurn - railMaintenanceLastTurn;
       const netLabel = railNet >= 0 ? `+${railNet}` : `${railNet}`;
@@ -9686,7 +10937,9 @@ function markSnow(rand) {
     updateKingAIState();
     ensureSuccessionDecision();
 
+    maybeTriggerStorySequence();
     maybeTriggerWorldEvent();
+    updateStoryEndCondition();
 
     updateHudStats();
     if (globalFunds <= 0) {
