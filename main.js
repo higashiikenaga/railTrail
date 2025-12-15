@@ -106,6 +106,7 @@
   let mobileConfirmAction = null;
   let mobileStorySetupCallback = null;
   let mobileInputMode = null;
+  let mobileTickerEl = null;
   const mobileOverlayHistory = [];
   const mobileObservers = [];
 
@@ -6319,6 +6320,7 @@ function renderHorsecarLineList() {
     orientationLockEl = document.getElementById('orientation-lock');
     mobileInfoMirror = document.getElementById('mobile-info-mirror');
     mobileStatsMirror = document.getElementById('mobile-hud-stats-mirror');
+    mobileTickerEl = document.getElementById('mobile-news-ticker');
     mobileContextPanel = document.getElementById('mobile-context-panel');
     mobileContextActionsEl = document.getElementById('mobile-context-actions');
     mobileContextTitleEl = document.getElementById('mobile-context-title');

@@ -29,7 +29,7 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     grid-template-columns:96px 1fr;
     grid-template-rows:1fr auto;
     gap:0;
-    pointer-events:auto;
+    pointer-events:none;
     align-items:stretch;
   }
   .mobile-input-active canvas {
@@ -50,6 +50,7 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     padding:10px 6px;
     align-items:center;
     justify-content:flex-start;
+    pointer-events:auto;
   }
   .mobile-mode-btn {
     width:100%;
@@ -77,6 +78,9 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     flex-direction:column;
     gap:12px;
     pointer-events:auto;
+    width:min(360px, calc(100vw - 112px));
+    justify-self:end;
+    align-self:stretch;
   }
   #mobile-context-heading {
     display:flex;
