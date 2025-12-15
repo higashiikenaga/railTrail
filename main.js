@@ -49,6 +49,7 @@
     actions: '行動',
     info: '情報',
     story: 'ストーリー',
+    system: 'システム',
   };
   const MOBILE_MODE_ACTIONS = {
     world: [
@@ -80,6 +81,11 @@
         disabled: () => roles.player !== 'king',
       },
     ],
+    system: [
+      { actionId: 'save-world', label: '保存' },
+      { actionId: 'load-world', label: '読み込み' },
+      { actionId: 'back-title', label: 'タイトルへ' },
+    ],
   };
   function isMobileUIEnabled() {
     return !!(document && document.body && document.body.classList.contains('mobile-ui-enabled'));
@@ -106,6 +112,10 @@
   let mobileConfirmAction = null;
   let mobileStorySetupCallback = null;
   let mobileInputMode = null;
+  let mobileNewsPanelEl = null;
+  let mobileNewsBodyEl = null;
+  let mobileNewsTurnEl = null;
+  let mobileSystemActionsEl = null;
   let mobileTickerEl = null;
   const mobileOverlayHistory = [];
   const mobileObservers = [];
@@ -1741,6 +1751,9 @@
         const isMobileUI = !!(document.body && document.body.classList.contains('mobile-ui-enabled'));
         const autoPopupAllowed = options.forceOverlay || roles.player === 'king';
         if (isMobileUI || !autoPopupAllowed) {
+          if (isMobileUI) {
+            openMobileRoyalNewsPanel(entries, turn);
+          }
           playSystemSound('news');
           return;
         }
@@ -2612,6 +2625,21 @@
     const { id, title, paragraphs, summary, actionId, buttonLabel } = opts;
     if (!id || overlayStack.find(o => o.id === id)) return false;
     const container = createStoryNarrativeContainer(paragraphs);
+    const mobileUI = document.body && document.body.classList.contains('mobile-ui-enabled');
+    if (mobileUI && openMobileRoyalNewsPanel(paragraphs.map(text => ({
+      actorName: '王令新聞',
+      summary: text,
+      turn: currentTurn,
+    })), currentTurn)) {
+      if (summary) {
+        publishStoryNews(summary);
+        recordStoryAction('player', actionId, {
+          actorName: '王令新聞',
+          storyLabel: summary,
+        });
+      }
+      return true;
+    }
     showStoryOverlay({
       id,
       title,
@@ -6152,6 +6180,51 @@ function renderHorsecarLineList() {
     mobileContextSubtitleEl.textContent = formatGameDate();
   }
 
+  function closeMobileRoyalNewsPanel() {
+    if (!mobileNewsPanelEl) return;
+    if (!mobileNewsPanelEl.classList.contains('visible')) return;
+    mobileNewsPanelEl.classList.remove('visible');
+    document.body.classList.remove('mobile-news-open');
+    removeMobileOverlayEntry('mobile-royal-news');
+    if (mobileNewsBodyEl) {
+      mobileNewsBodyEl.innerHTML = '';
+    }
+    updateControlButtons();
+  }
+
+  function openMobileRoyalNewsPanel(entries, turn) {
+    if (!mobileNewsPanelEl || !entries || !entries.length) return false;
+    if (lastRoyalNewsOverlayId) {
+      closeStoryOverlay(lastRoyalNewsOverlayId);
+      lastRoyalNewsOverlayId = null;
+    }
+    if (mobileNewsBodyEl) {
+      mobileNewsBodyEl.innerHTML = '';
+      entries.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'mobile-news-entry';
+        const title = document.createElement('div');
+        title.style.fontSize = '12px';
+        title.style.opacity = '0.7';
+        title.textContent = `${formatGameDate(entry.turn)} ${entry.actorName || '王令新聞'}`;
+        const body = document.createElement('div');
+        body.textContent = entry.summary || '見出しがありません';
+        row.appendChild(title);
+        row.appendChild(body);
+        mobileNewsBodyEl.appendChild(row);
+      });
+    }
+    if (mobileNewsTurnEl) {
+      mobileNewsTurnEl.textContent = formatGameDate(turn);
+    }
+    mobileNewsPanelEl.classList.add('visible');
+    document.body.classList.add('mobile-news-open');
+    registerMobileOverlayEntry('mobile-royal-news', '王令新聞', closeMobileRoyalNewsPanel);
+    timeControl.speed = 0;
+    updateControlButtons();
+    return true;
+  }
+
   function handleMobileContextAction(entry) {
     if (!entry || mobileInputMode) return;
     runMobileContextAction(entry);
@@ -6336,6 +6409,20 @@ function renderHorsecarLineList() {
     mobileModalHeaderEl = document.getElementById('mobile-modal-header');
     mobileModalBackBtn = document.getElementById('mobile-modal-back');
     mobileModalTitleEl = document.getElementById('mobile-modal-title');
+    mobileNewsPanelEl = document.getElementById('mobile-news-panel');
+    if (mobileNewsPanelEl) {
+      mobileNewsBodyEl = mobileNewsPanelEl.querySelector('.mobile-news-body');
+      mobileNewsTurnEl = mobileNewsPanelEl.querySelector('#mobile-news-turn');
+      mobileNewsPanelEl.querySelectorAll('[data-mobile-news-close]').forEach(btn => {
+        btn.addEventListener('click', closeMobileRoyalNewsPanel);
+      });
+    }
+    mobileSystemActionsEl = document.getElementById('mobile-system-actions');
+    if (mobileSystemActionsEl) {
+      mobileSystemActionsEl.querySelectorAll('[data-mobile-system]').forEach(btn => {
+        btn.addEventListener('click', () => handleTouchAction(btn.dataset.mobileSystem));
+      });
+    }
     document.querySelectorAll('[data-mobile-mode]').forEach(btn => {
       mobileModeButtons.push(btn);
       btn.addEventListener('click', () => setActiveMobileMode(btn.dataset.mobileMode));

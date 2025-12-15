@@ -98,24 +98,38 @@
   <audio id="title-bgm" loop preload="auto"></audio>
   <div id="story-overlay-root"></div>
   <div id="mobile-ui">
-    <div id="mobile-mode-panel">
-      <button type="button" data-mobile-mode="world" class="mobile-mode-btn active">世界</button>
-      <button type="button" data-mobile-mode="actions" class="mobile-mode-btn">行動</button>
-      <button type="button" data-mobile-mode="info" class="mobile-mode-btn">情報</button>
-      <button type="button" data-mobile-mode="story" class="mobile-mode-btn">ストーリー</button>
+  <div id="mobile-mode-panel">
+    <button type="button" data-mobile-mode="world" class="mobile-mode-btn active">世界</button>
+    <button type="button" data-mobile-mode="actions" class="mobile-mode-btn">行動</button>
+    <button type="button" data-mobile-mode="info" class="mobile-mode-btn">情報</button>
+    <button type="button" data-mobile-mode="story" class="mobile-mode-btn">ストーリー</button>
+    <button type="button" data-mobile-mode="system" class="mobile-mode-btn">システム</button>
+  </div>
+  <div id="mobile-context-panel">
+    <div id="mobile-context-heading">
+      <div id="mobile-context-title">世界</div>
+      <div id="mobile-context-subtitle">0年0月</div>
     </div>
-    <div id="mobile-context-panel">
-      <div id="mobile-context-heading">
-        <div id="mobile-context-title">世界</div>
-        <div id="mobile-context-subtitle">0年0月</div>
-      </div>
-      <div id="mobile-context-actions"></div>
-      <div id="mobile-info-stack">
-        <div id="mobile-hud-stats-mirror" class="mobile-info-block"></div>
-        <div id="mobile-info-mirror" class="mobile-info-block"></div>
-      </div>
+    <div id="mobile-context-actions"></div>
+    <div id="mobile-info-stack">
+      <div id="mobile-hud-stats-mirror" class="mobile-info-block"></div>
+      <div id="mobile-info-mirror" class="mobile-info-block"></div>
     </div>
-    <div id="mobile-input-bar" class="mobile-input-hidden">
+  </div>
+  <div id="mobile-news-panel" class="mobile-news-panel">
+    <div class="mobile-news-header">
+      <div>
+        <div class="mobile-news-label">王令新聞</div>
+        <div id="mobile-news-turn" class="mobile-news-turn">0年0月</div>
+      </div>
+      <button type="button" data-mobile-news-close class="btn mobile-news-close">戻る</button>
+    </div>
+    <div class="mobile-news-body"></div>
+    <div class="mobile-news-actions">
+      <button type="button" data-mobile-news-close class="btn mobile-news-primary">了解</button>
+    </div>
+  </div>
+  <div id="mobile-input-bar" class="mobile-input-hidden">
       <div id="mobile-input-message">操作を選択してください。</div>
       <input id="mobile-story-input-field" type="text" maxlength="12" autocomplete="off" placeholder="名前を入力">
       <select id="mobile-story-gender-select">

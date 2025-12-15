@@ -20,17 +20,23 @@ body.mobile-ui-enabled.title-active #orientation-lock {
   #mobile-ui {
     display:none;
     position:fixed;
-    inset:0;
+    left:0;
+    right:0;
+    bottom:0;
+    height:50vh;
     z-index:120;
     pointer-events:none;
   }
-  body.mobile-ui-enabled #mobile-ui {
+body.mobile-ui-enabled #mobile-ui {
     display:grid;
     grid-template-columns:96px 1fr;
     grid-template-rows:1fr auto;
     gap:0;
     pointer-events:none;
     align-items:stretch;
+  }
+body.mobile-news-open #mobile-ui {
+    pointer-events:auto;
   }
   .mobile-input-active canvas {
     pointer-events:none;
@@ -194,6 +200,66 @@ body.mobile-ui-enabled.title-active #orientation-lock {
   .mobile-input-next.visible {
     display:block;
   }
+  #mobile-news-panel {
+    position:absolute;
+    inset:0;
+    background:rgba(5,7,15,0.95);
+    border-top:1px solid rgba(255,255,255,0.15);
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    padding:14px;
+    transform:translateY(110%);
+    opacity:0;
+    pointer-events:none;
+    z-index:165;
+    transition:transform .3s ease, opacity .3s ease;
+  }
+  #mobile-news-panel.visible {
+    transform:translateY(0);
+    opacity:1;
+    pointer-events:auto;
+  }
+  .mobile-news-header {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+  .mobile-news-label {
+    font-size:14px;
+    font-weight:600;
+  }
+  .mobile-news-turn {
+    font-size:12px;
+    color:#a3b8ff;
+    letter-spacing:0.06em;
+  }
+  .mobile-news-body {
+    flex:1;
+    overflow:auto;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .mobile-news-body p {
+    margin:0;
+  }
+  .mobile-news-entry {
+    padding:10px 12px;
+    border-radius:10px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.08);
+    font-size:13px;
+    line-height:1.5;
+  }
+  .mobile-news-actions {
+    display:flex;
+    gap:8px;
+  }
+  .mobile-news-actions .btn {
+    flex:1;
+  }
   #mobile-overlay {
     position:fixed;
     inset:0;
@@ -209,6 +275,12 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     margin:0 auto;
   }
   #mobile-modal-header {
+    position:fixed;
+    top:8px;
+    left:50%;
+    transform:translateX(-50%);
+    width:min(92vw, 420px);
+    max-width:440px;
     display:flex;
     align-items:center;
     justify-content:space-between;
@@ -219,6 +291,7 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     padding:6px 12px;
     box-shadow:0 12px 30px rgba(0,0,0,0.45);
     pointer-events:none;
+    z-index:170;
   }
   #mobile-modal-header.visible {
     pointer-events:auto;
@@ -239,7 +312,7 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     letter-spacing:0.08em;
     color:#f5f7ff;
   }
-#orientation-lock {
+  #orientation-lock {
   position:fixed;
   inset:0;
   background:rgba(0,0,0,0.75);
