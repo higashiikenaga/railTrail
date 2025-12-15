@@ -24,6 +24,7 @@
   const overlaySaveBtn = document.getElementById('btn-overlay-save');
   const overlayDiscardBtn = document.getElementById('btn-overlay-discard');
   const overlayCancelBtn = document.getElementById('btn-overlay-cancel');
+  const mobileUiEl = document.getElementById('mobile-ui');
   const cityListOverlay = document.getElementById('city-list-overlay');
   const cityListContainer = document.getElementById('city-list-container');
   const cityListCloseBtn = document.getElementById('btn-city-list-close');
@@ -32,6 +33,9 @@
   const btnGoLoad = document.getElementById('btn-go-load');
   const hudButtons = Array.from(document.querySelectorAll('#hud [data-action]'));
   const MOBILE_BREAKPOINT = 900;
+  const MOBILE_UI_HEIGHT_RATIO = 0.48;
+  const MOBILE_UI_HEIGHT_MIN = 260;
+  const MOBILE_UI_HEIGHT_MAX = 420;
   const SPEED_ORDER = [0, 1, 2, 3];
   const SPEED_LABELS = { 0: '停止', 1: '1x', 2: '2x', 3: '3x' };
   const hasTouchSupport = (() => {
@@ -102,6 +106,7 @@
   let mobileContextActionsEl = null;
   let mobileContextTitleEl = null;
   let mobileContextSubtitleEl = null;
+  let mobileSpeedIndicatorEl = null;
   let mobileInputBarEl = null;
   let mobileInputMessageEl = null;
   let mobileStoryInputField = null;
@@ -2457,6 +2462,288 @@
     LEGACY: 'legacy',
   };
 
+  const ROMANCE_CANDIDATES = [
+    {
+      id: 'noble',
+      label: '貴族の令嬢',
+      name: '奏 (かなで)',
+      note: '宮廷詩人として名を馳せる中性的な才媛。',
+      initialAffection: 52,
+      initialInfluence: 58,
+      scandalRisk: 0.04,
+      factionSupport: { nobility: 2, citizens: -1, clergy: 0, military: 0 },
+    },
+    {
+      id: 'activist',
+      label: '庶民出身の活動家',
+      name: '律 (りつ)',
+      note: '民衆の声を代弁する演説家。',
+      initialAffection: 50,
+      initialInfluence: 52,
+      scandalRisk: 0.05,
+      factionSupport: { citizens: 2, nobility: -1, clergy: -1, military: 0 },
+    },
+    {
+      id: 'soldier',
+      label: '主人公と同性の軍人',
+      name: '優 (ゆう)',
+      note: '軍籍を持つ親友のような存在。',
+      initialAffection: 48,
+      initialInfluence: 55,
+      scandalRisk: 0.06,
+      factionSupport: { military: 2, nobility: -1, clergy: -1, citizens: 0 },
+    },
+  ];
+  const ROMANCE_INTERACTIONS = [
+    {
+      id: 'noble_dinner',
+      candidateId: 'noble',
+      offset: 3,
+      title: '宮廷の晩餐',
+      description: '貴族の令嬢・奏と隣席となった。インフラ会議の余韻を共有する。',
+      choices: [
+        {
+          label: '優雅に会食を続ける',
+          summary: 'ハウスイベントで奏と親しく振る舞い、貴族の信頼を得た。',
+          effects: {
+            affection: 6,
+            influence: 2,
+            support: { nobility: 4, citizens: -1 },
+            stability: 1,
+          },
+        },
+        {
+          label: '治安会議へ向かい忙しく振る舞う',
+          summary: '治安重視を優先した姿勢に、庶民層で好感が残る。',
+          effects: {
+            affection: 2,
+            support: { citizens: 2 },
+            scandal: 0.02,
+          },
+        },
+      ],
+    },
+    {
+      id: 'activist_visit',
+      candidateId: 'activist',
+      offset: 6,
+      title: '草の根の火花',
+      description: '活動家・律が市街地で移民支援の覚書を手渡す。',
+      choices: [
+        {
+          label: '改革案に賛同する',
+          summary: '民衆支持の高まりを実感し、律と距離を縮めた。',
+          effects: {
+            affection: 5,
+            support: { citizens: 4, nobility: -2 },
+            stability: 1,
+            influence: 1,
+          },
+        },
+        {
+          label: '夜間の治安出動を命じる',
+          summary: '治安優先を示しつつ律に力を貸さない姿勢を示した。',
+          effects: {
+            affection: 1,
+            support: { military: 2 },
+            scandal: 0.03,
+          },
+        },
+      ],
+    },
+    {
+      id: 'soldier_training',
+      candidateId: 'soldier',
+      offset: 8,
+      title: '軍営の夜',
+      description: '軍人・優に招かれ、訓練場で分隊を視察する。',
+      choices: [
+        {
+          label: '士官と飲み交わす',
+          summary: '軍の士気を重視し、優との約束を深めた。',
+          effects: {
+            affection: 5,
+            influence: 2,
+            support: { military: 4, clergy: -1 },
+            stability: 2,
+          },
+        },
+        {
+          label: '静かに筆を取り戦略を吟味',
+          summary: '軍と相談しつつ冷静な判断を見せた。',
+          effects: {
+            affection: 2,
+            support: { nobility: 1 },
+            scandal: 0.02,
+          },
+        },
+      ],
+    },
+    {
+      id: 'noble_progress',
+      candidateId: 'noble',
+      offset: 10,
+      title: '庭園の対話',
+      description: '奏と庭園を歩きながら魔法研究の展望を語る。',
+      choices: [
+        {
+          label: '研究者たちを称える',
+          summary: '魔法研究への理解を示し、奏と同じ視線を得た。',
+          effects: {
+            affection: 4,
+            support: { citizens: 1, nobility: 2 },
+            influence: 1,
+          },
+        },
+        {
+          label: '伝統と秩序を強調する',
+          summary: '秩序を重んじる姿勢に、保守層が安心を感じた。',
+          effects: {
+            affection: 2,
+            support: { nobility: 3 },
+            scandal: 0.01,
+          },
+        },
+      ],
+    },
+    {
+      id: 'activist_campaign',
+      candidateId: 'activist',
+      offset: 14,
+      title: '民衆の声',
+      description: '律に誘われ、庶民地区で行動を共にする。',
+      choices: [
+        {
+          label: '移民支援を約束',
+          summary: '政策転換の兆しを見せ、律との結びつきが強まった。',
+          effects: {
+            affection: 4,
+            support: { citizens: 3 },
+            stability: 1,
+          },
+        },
+        {
+          label: '経済繁栄を優先',
+          summary: '商人と共に繁栄策を語り、貴族の評価を維持した。',
+          effects: {
+            support: { nobility: 2 },
+            scandal: 0.02,
+          },
+        },
+      ],
+    },
+    {
+      id: 'soldier_guard',
+      candidateId: 'soldier',
+      offset: 16,
+      title: '忠誠の誓い',
+      description: '優が前線指揮を終え帰還し、王へ忠誠を誓う。',
+      choices: [
+        {
+          label: '軍務を祝し礼を返す',
+          summary: '軍の絆が深まり、優との距離も縮まる。',
+          effects: {
+            affection: 4,
+            influence: 2,
+            support: { military: 3, clergy: -1 },
+            stability: 2,
+          },
+        },
+        {
+          label: '冷静に戦況を分析',
+          summary: '策士の目で情勢を読む姿勢が評価された。',
+          effects: {
+            support: { citizens: 1 },
+            scandal: 0.02,
+          },
+        },
+      ],
+    },
+  ];
+  const ROMANCE_STAGES = [
+    {
+      id: 'romance_noble',
+      offset: 6,
+      candidateId: 'noble',
+      title: '静かな挨拶',
+      summary: '王令新聞「静かな挨拶」奏と王が視線を交わした。防衛団もその存在に目を向ける。',
+      paragraphs: [
+        '宮廷晩餐にて、貴族の令嬢・奏がギャラリー越しに穏やかな視線を送る。',
+        '王令新聞は「静かな挨拶」と題し、王と奏の距離が少し縮まったことを伝えた。',
+      ],
+      actionId: 'story_romance_noble',
+    },
+    {
+      id: 'romance_activist',
+      offset: 12,
+      candidateId: 'activist',
+      title: '草の根の火花',
+      summary: '王令新聞「草の根の火花」民衆の声を代弁する律と王が路地で言葉を交わした。',
+      paragraphs: [
+        '庶民出身の活動家・律が、街角の演説後に静かに王に語り掛けた。',
+        '王令新聞は「草の根の火花」と記し、支持・勢力のバランスが新たな色を帯びたと報じる。',
+      ],
+      actionId: 'story_romance_activist',
+    },
+    {
+      id: 'romance_soldier',
+      offset: 18,
+      candidateId: 'soldier',
+      title: '戦友との夜',
+      summary: '王令新聞「戦友との夜」優と共に訓練を見守った王の背中を、師団が追う。',
+      paragraphs: [
+        '王は軍営を訪れ、主人公と同性の軍人・優と訓練場を歩いた。',
+        '王令新聞は「戦友との夜」と題し、同じ軍歌を口ずさむ二人の距離を伝えた。',
+      ],
+      actionId: 'story_romance_soldier',
+    },
+  ];
+  const ROMANCE_ENGAGEMENT_OFFSET = 24;
+
+  function ensureRomanceData(state) {
+    if (!state) return null;
+    if (!state.romanceData) {
+      state.romanceData = createRomanceDataTemplate();
+    }
+    return state.romanceData;
+  }
+
+  function getRomanceCandidateData(state, candidateId) {
+    const data = ensureRomanceData(state);
+    return data && candidateId ? data[candidateId] : null;
+  }
+
+  function adjustPlayerSupport(faction, delta) {
+    if (!faction || delta === 0) return;
+    const playerChar = characters.player;
+    if (!playerChar) return;
+    if (!playerChar.support) playerChar.support = {};
+    const current = Number(playerChar.support[faction]) || 50;
+    playerChar.support[faction] = clamp(current + delta, 0, 100);
+  }
+
+  function adjustNationStability(delta) {
+    if (!Number.isFinite(delta) || delta === 0) return;
+    cities.forEach(city => {
+      if (!city) return;
+      city.stability = clamp((city.stability || 50) + delta, 0, 120);
+    });
+  }
+
+  function createRomanceDataTemplate() {
+    const template = {};
+    ROMANCE_CANDIDATES.forEach(candidate => {
+      template[candidate.id] = {
+        affection: candidate.initialAffection ?? 50,
+        politicalInfluence: candidate.initialInfluence ?? 50,
+        scandalMomentum: 0,
+        scandalTriggered: false,
+        factionSupport: { ...(candidate.factionSupport || {}) },
+      };
+    });
+    return template;
+  }
+
   const METROPOLITAN_POP_THRESHOLD = 9000;
   const METROPOLITAN_DISTANCE = 10;
   const METROPOLITAN_GROWTH_BONUS = 0.02;
@@ -2573,6 +2860,13 @@
       storyEndReady: false,
       storyEndInvoked: false,
       legacyAnnounced: false,
+      romanceStages: {},
+      romanceEngagementAnnounced: false,
+      romanceEngagedCandidate: null,
+      romanceData: createRomanceDataTemplate(),
+      romanceInteractions: {},
+      romanceScandalTriggered: false,
+      romanceMissedOpportunity: false,
     };
   }
 
@@ -2592,9 +2886,17 @@
   function restoreStoryScenarioState(data) {
     if (data && typeof data === 'object') {
       const copy = { ...createStoryScenarioState(), ...data };
+      const baseState = createStoryScenarioState();
       copy.phaseFlags = { ...createStoryPhaseFlags(), ...(data.phaseFlags || {}) };
+      copy.romanceData = { ...baseState.romanceData, ...(data.romanceData || {}) };
+      copy.romanceInteractions = { ...baseState.romanceInteractions, ...(data.romanceInteractions || {}) };
+      copy.romanceScandalTriggered = typeof data.romanceScandalTriggered === 'boolean' ? data.romanceScandalTriggered : false;
+      copy.romanceMissedOpportunity = typeof data.romanceMissedOpportunity === 'boolean' ? data.romanceMissedOpportunity : false;
       const validStages = new Set(Object.values(STORY_SCENARIOS));
       copy.stage = validStages.has(copy.stage) ? copy.stage : STORY_SCENARIOS.ARRIVAL;
+      copy.romanceStages = { ...createStoryScenarioState().romanceStages, ...(data.romanceStages || {}) };
+      copy.romanceEngagementAnnounced = typeof data.romanceEngagementAnnounced === 'boolean' ? data.romanceEngagementAnnounced : false;
+      copy.romanceEngagedCandidate = data.romanceEngagedCandidate || null;
       storyScenarioState = copy;
     } else {
       resetStoryScenarioState();
@@ -2734,6 +3036,322 @@
       state.phaseFlags.politicsEra = true;
     }
     return shown;
+  }
+
+  function showRomanceStageOverlay(state, stage) {
+    if (!state || !stage) return false;
+    const overlayId = `story-romance-${stage.id}`;
+    if (overlayStack.find(o => o.id === overlayId)) return true;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    (stage.paragraphs || []).forEach(text => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    });
+    timeControl.speed = 0;
+    updateControlButtons();
+    showStoryOverlay({
+      id: overlayId,
+      title: stage.title,
+      body: container,
+      modal: false,
+      buttons: [{ label: 'その絆を感じる', action: () => closeStoryOverlay(overlayId) }],
+      animate: true,
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    publishStoryNews(stage.summary);
+    recordStoryAction('player', stage.actionId, {
+      storyLabel: stage.summary,
+    });
+    state.romanceStages[stage.id] = true;
+    return true;
+  }
+
+  function getRomanceCandidate(id) {
+    return ROMANCE_CANDIDATES.find(entry => entry.id === id) || null;
+  }
+
+  function maybeTriggerRomanceStage(state) {
+    if (!state || state.stage !== STORY_SCENARIOS.POST_SUCCESSION) return false;
+    if (roles.player !== 'king') return false;
+    if (state.successionTurn == null) return false;
+    return ROMANCE_STAGES.some(stage => {
+      if (state.romanceStages[stage.id]) return false;
+      if (currentTurn !== (state.successionTurn + stage.offset)) return false;
+      showRomanceStageOverlay(state, stage);
+      return true;
+    });
+  }
+
+  function showRomanceInteractionOverlay(state, interaction) {
+    if (!storyOverlayRoot || !interaction) return false;
+    const overlayId = `story-romance-interaction-${interaction.id}`;
+    if (overlayStack.find(o => o.id === overlayId)) return true;
+    const candidate = getRomanceCandidate(interaction.candidateId);
+    if (!candidate) return false;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const desc = document.createElement('p');
+    desc.textContent = interaction.description || `候補者 ${candidate.label} との面会。`;
+    container.appendChild(desc);
+    (interaction.choices || []).forEach(choice => {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'flex-start';
+      row.style.padding = '8px';
+      row.style.borderRadius = '8px';
+      row.style.border = '1px solid rgba(255,255,255,0.08)';
+      row.style.background = 'rgba(255,255,255,0.03)';
+      const info = document.createElement('div');
+      info.style.display = 'flex';
+      info.style.flexDirection = 'column';
+      info.style.gap = '4px';
+      const label = document.createElement('strong');
+      label.textContent = choice.label;
+      const summary = document.createElement('span');
+      summary.style.fontSize = '12px';
+      summary.style.opacity = '0.7';
+      summary.textContent = choice.summary || '静かに選ぶ。';
+      info.appendChild(label);
+      info.appendChild(summary);
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.type = 'button';
+      btn.textContent = 'その方向で進める';
+      btn.addEventListener('click', () => {
+        applyRomanceInteractionChoice(state, interaction, choice, candidate, overlayId);
+      });
+      row.appendChild(info);
+      row.appendChild(btn);
+      container.appendChild(row);
+    });
+    timeControl.speed = 0;
+    updateControlButtons();
+    showStoryOverlay({
+      id: overlayId,
+      title: interaction.title || `${candidate.label}との交流`,
+      body: container,
+      modal: false,
+      buttons: [{ label: '少し時間をおく', action: () => closeStoryOverlay(overlayId) }],
+      animate: true,
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    return true;
+  }
+
+  function applyRomanceInteractionChoice(state, interaction, choice, candidate, overlayId) {
+    if (!state || !interaction || !choice || !candidate) return;
+    const data = getRomanceCandidateData(state, interaction.candidateId);
+    if (!data) return;
+    const effects = choice.effects || {};
+    data.affection = clamp((data.affection || 50) + (effects.affection || 0), 0, 100);
+    data.politicalInfluence = clamp((data.politicalInfluence || 50) + (effects.influence || 0), 0, 100);
+    if (effects.support) {
+      Object.entries(effects.support).forEach(([faction, delta]) => {
+        adjustPlayerSupport(faction, delta);
+      });
+    }
+    if (effects.stability) {
+      adjustNationStability(effects.stability);
+    }
+    if (effects.scandal) {
+      data.scandalMomentum = Math.min(1, (data.scandalMomentum || 0) + effects.scandal);
+    }
+    state.romanceInteractions[interaction.id] = true;
+    const summary = choice.summary || `${candidate.label}との時間が深まった。`;
+    publishStoryNews(summary);
+    recordStoryAction('player', interaction.id, { storyLabel: summary });
+    if (tileInfoEl) {
+      tileInfoEl.textContent = summary;
+    }
+    closeStoryOverlay(overlayId);
+    maybeTriggerRomanceScandal(state);
+  }
+
+  function maybeTriggerRomanceInteraction(state) {
+    if (!state || state.stage !== STORY_SCENARIOS.POST_SUCCESSION) return false;
+    if (roles.player !== 'king') return false;
+    if (state.successionTurn == null) return false;
+    const relative = currentTurn - state.successionTurn;
+    return ROMANCE_INTERACTIONS.some(interaction => {
+      if (state.romanceInteractions[interaction.id]) return false;
+      if (relative !== interaction.offset) return false;
+      showRomanceInteractionOverlay(state, interaction);
+      return true;
+    });
+  }
+
+  function showRomanceScandalOverlay(state, candidate, data) {
+    if (!storyOverlayRoot || !candidate || !state || !data) return false;
+    const overlayId = `story-romance-scandal-${candidate.id}`;
+    if (overlayStack.find(o => o.id === overlayId)) return true;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const paragraph = document.createElement('p');
+    paragraph.textContent = `${candidate.label}との接近を「王令新聞」が好意的に伝えるも、スキャンダルの気配が漂った。`;
+    container.appendChild(paragraph);
+    const note = document.createElement('span');
+    note.style.fontSize = '12px';
+    note.style.opacity = '0.7';
+    note.textContent = '諜報筋は「過去の関係性が掘り起こされる可能性がある」と報じている。';
+    container.appendChild(note);
+    timeControl.speed = 0;
+    updateControlButtons();
+    showStoryOverlay({
+      id: overlayId,
+      title: 'スキャンダルの兆し',
+      body: container,
+      modal: false,
+      buttons: [{ label: '焦らず誠意を示す', action: () => closeStoryOverlay(overlayId) }],
+      animate: true,
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    const summary = `王令新聞「スキャンダルの兆し」${candidate.label}への注目が一部勢力の反発を呼ぶ。`;
+    publishStoryNews(summary);
+    recordStoryAction('player', `story_romance_scandal_${candidate.id}`, { storyLabel: summary });
+    adjustPlayerSupport('nobility', -2);
+    adjustPlayerSupport('citizens', -2);
+    adjustNationStability(-2);
+    data.scandalTriggered = true;
+    state.romanceScandalTriggered = true;
+    if (tileInfoEl) {
+      tileInfoEl.textContent = summary;
+    }
+    return true;
+  }
+
+  function maybeTriggerRomanceScandal(state) {
+    if (!state || state.stage !== STORY_SCENARIOS.POST_SUCCESSION) return false;
+    if (roles.player !== 'king') return false;
+    if (state.successionTurn == null) return false;
+    if (state.romanceScandalTriggered) return false;
+    return ROMANCE_CANDIDATES.some(candidate => {
+      const data = getRomanceCandidateData(state, candidate.id);
+      if (!data || data.scandalTriggered) return false;
+      const chance = (candidate.scandalRisk || 0.02) + (data.scandalMomentum || 0);
+      if (Math.random() < chance) {
+        showRomanceScandalOverlay(state, candidate, data);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  function applyRomanceEngagementEffects(candidate) {
+    if (!candidate) return;
+    const factions = candidate.factionSupport || {};
+    Object.entries(factions).forEach(([faction, weight]) => {
+      adjustPlayerSupport(faction, weight * 2);
+    });
+    adjustNationStability(3);
+  }
+
+  function finalizeRomanceEngagement(overlayId, state, candidate) {
+    if (!state || !candidate) return;
+    applyRomanceEngagementEffects(candidate);
+    state.romanceEngagedCandidate = candidate.id;
+    state.romanceEngagementAnnounced = true;
+    const summary = `王令新聞「婚約の鐘」${candidate.label}（${candidate.name}）との婚約を決めた。`;
+    publishStoryNews(summary);
+    recordStoryAction('player', 'story_romance_engaged', {
+      storyLabel: summary,
+    });
+    if (tileInfoEl) {
+      tileInfoEl.textContent = `${candidate.label}（${candidate.name}）との婚約が発表された。`;
+    }
+    closeStoryOverlay(overlayId);
+  }
+
+  function handleRomancePostpone(state, overlayId) {
+    if (!state || !overlayId) return;
+    state.romanceMissedOpportunity = true;
+    if (!state.romanceEngagementAnnounced) {
+      state.romanceEngagementAnnounced = true;
+    }
+    const summary = '王令新聞「婚約の余白」婚約の決断を後回しにしたことで、一部勢力に不信が広がる。';
+    publishStoryNews(summary);
+    recordStoryAction('player', 'story_romance_postpone', { storyLabel: summary });
+    adjustPlayerSupport('nobility', -2);
+    adjustPlayerSupport('citizens', -2);
+    adjustNationStability(-2);
+    if (tileInfoEl) {
+      tileInfoEl.textContent = summary;
+    }
+    closeStoryOverlay(overlayId);
+  }
+
+  function openRomanceEngagementOverlay(state) {
+    if (!state || state.romanceEngagementAnnounced) return false;
+    const overlayId = 'story-romance-engagement';
+    if (overlayStack.find(o => o.id === overlayId)) return true;
+    state.romanceEngagementAnnounced = true;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const intro = document.createElement('p');
+    intro.textContent = '王令新聞「婚約の鐘」— 王は候補たちとの絆を選び、国家に新しい物語を刻もうとしている。';
+    container.appendChild(intro);
+    ROMANCE_CANDIDATES.forEach(candidate => {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.padding = '8px';
+      row.style.borderRadius = '10px';
+      row.style.background = 'rgba(255,255,255,0.02)';
+      row.style.border = '1px solid rgba(255,255,255,0.08)';
+      const info = document.createElement('div');
+      info.style.display = 'flex';
+      info.style.flexDirection = 'column';
+      info.style.gap = '4px';
+      const title = document.createElement('strong');
+      title.textContent = `${candidate.label} (${candidate.name})`;
+      const detail = document.createElement('span');
+      detail.style.fontSize = '12px';
+      detail.style.opacity = '0.7';
+      detail.textContent = candidate.note;
+      info.appendChild(title);
+      info.appendChild(detail);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn';
+      btn.textContent = '婚約する';
+      btn.addEventListener('click', () => finalizeRomanceEngagement(overlayId, state, candidate));
+      row.appendChild(info);
+      row.appendChild(btn);
+      container.appendChild(row);
+    });
+    timeControl.speed = 0;
+    updateControlButtons();
+    showStoryOverlay({
+      id: overlayId,
+      title: '婚約の決断',
+      body: container,
+      modal: false,
+      buttons: [{ label: '後で考える', action: () => handleRomancePostpone(state, overlayId) }],
+      animate: true,
+      mobileTitle: '婚約候補',
+      width: Math.min(520, window.innerWidth - 40),
+    });
+    return true;
+  }
+
+  function maybeTriggerRomanceEngagement(state) {
+    if (!state || state.stage !== STORY_SCENARIOS.POST_SUCCESSION) return false;
+    if (roles.player !== 'king') return false;
+    if (state.successionTurn == null) return false;
+    if (state.romanceEngagementAnnounced) return false;
+    if (currentTurn < state.successionTurn + ROMANCE_ENGAGEMENT_OFFSET) return false;
+    return openRomanceEngagementOverlay(state);
   }
 
   function maybeTriggerDivisionEra(state) {
@@ -4475,8 +5093,9 @@ function renderHorsecarLineList() {
               if (tileInfoEl) tileInfoEl.textContent = '先に路線を選択してください';
               return;
             }
-            const originId = getLineEndpointId(line, 'start');
-            const destinationId = getLineEndpointId(line, 'end');
+            const originId = ensureLineEndpointCity(line, 'start');
+            const destinationId = ensureLineEndpointCity(line, 'end');
+            updateRouteDisplay();
             if (!originId || !destinationId || originId === destinationId) {
               if (tileInfoEl) tileInfoEl.textContent = 'この路線は有効な起点・終点を持っていません';
               return;
@@ -5430,6 +6049,18 @@ function renderHorsecarLineList() {
           if (maybeTriggerDivisionEra(state)) {
             return;
           }
+          if (maybeTriggerRomanceStage(state)) {
+            return;
+          }
+          if (maybeTriggerRomanceInteraction(state)) {
+            return;
+          }
+          if (maybeTriggerRomanceScandal(state)) {
+            return;
+          }
+          if (maybeTriggerRomanceEngagement(state)) {
+            return;
+          }
           if (state.successionNarrativeShown &&
             !state.legacyAnnounced &&
             state.successionTurn != null &&
@@ -5834,7 +6465,8 @@ function renderHorsecarLineList() {
     }
 
     function updateControlButtons() {
-    const timeLocked = isStoryMode && successionTurnPlanned != null && currentTurn < successionTurnPlanned;
+      updateMobileSpeedButton();
+      const timeLocked = isStoryMode && successionTurnPlanned != null && currentTurn < successionTurnPlanned;
     const storyState = storyScenarioState;
     const storyEndReady = !!(storyState && storyState.storyEndReady && !storyState.storyEndInvoked);
     hudButtons.forEach(btn => {
@@ -6088,6 +6720,14 @@ function renderHorsecarLineList() {
     });
   }
 
+  function updateMobileSpeedButton() {
+    if (!mobileSpeedIndicatorEl) return;
+    const label = SPEED_LABELS[timeControl.speed] || '1x';
+    mobileSpeedIndicatorEl.textContent = label;
+    mobileSpeedIndicatorEl.setAttribute('aria-label', `時間速度 ${label}`);
+    mobileSpeedIndicatorEl.classList.toggle('mobile-speed-paused', timeControl.speed === 0);
+  }
+
   function updateOrientationLock() {
     if (!orientationLockEl) return;
     const shouldShow =
@@ -6096,6 +6736,24 @@ function renderHorsecarLineList() {
       window.innerHeight < window.innerWidth;
     orientationLockEl.classList.toggle('visible', shouldShow);
     document.body.classList.toggle('orientation-locked', shouldShow);
+  }
+
+  function getMobileUiReservedHeight() {
+    const baseHeight = window.innerHeight || canvas.height || 740;
+    const candidate = Math.round(baseHeight * MOBILE_UI_HEIGHT_RATIO);
+    return clamp(candidate, MOBILE_UI_HEIGHT_MIN, MOBILE_UI_HEIGHT_MAX);
+  }
+
+  function refreshMobileLayout() {
+    const isEnabled = document.body && document.body.classList.contains('mobile-ui-enabled');
+    const reserved = isEnabled ? getMobileUiReservedHeight() : 0;
+    if (document.body) {
+      document.body.style.setProperty('--mobile-ui-height', `${reserved}px`);
+    }
+    if (mobileUiEl) {
+      mobileUiEl.style.height = reserved ? `${reserved}px` : '';
+    }
+    return reserved;
   }
 
   function updateMobileOverlayHeader() {
@@ -6172,6 +6830,9 @@ function renderHorsecarLineList() {
       btn.addEventListener('click', () => handleMobileContextAction(entry));
       mobileContextActionsEl.appendChild(btn);
     });
+    if (mobileSystemActionsEl) {
+      mobileSystemActionsEl.style.display = mobileActiveMode === 'system' ? 'flex' : 'none';
+    }
   }
 
   function updateMobileContextHeading() {
@@ -6358,6 +7019,7 @@ function renderHorsecarLineList() {
   function updateMobileUIVisibility() {
     const enabled = hasTouchSupport && window.innerWidth <= MOBILE_BREAKPOINT;
     document.body.classList.toggle('mobile-ui-enabled', enabled);
+    refreshMobileLayout();
     if (!enabled) {
       hideMobileInputBar();
       mobileOverlayHistory.length = 0;
@@ -6394,10 +7056,14 @@ function renderHorsecarLineList() {
     mobileInfoMirror = document.getElementById('mobile-info-mirror');
     mobileStatsMirror = document.getElementById('mobile-hud-stats-mirror');
     mobileTickerEl = document.getElementById('mobile-news-ticker');
+    if (mobileTickerEl) {
+      updateMobileNewsTicker();
+    }
     mobileContextPanel = document.getElementById('mobile-context-panel');
     mobileContextActionsEl = document.getElementById('mobile-context-actions');
     mobileContextTitleEl = document.getElementById('mobile-context-title');
     mobileContextSubtitleEl = document.getElementById('mobile-context-subtitle');
+    mobileSpeedIndicatorEl = document.getElementById('mobile-speed-indicator');
     mobileInputBarEl = document.getElementById('mobile-input-bar');
     mobileInputMessageEl = document.getElementById('mobile-input-message');
     mobileStoryInputField = document.getElementById('mobile-story-input-field');
@@ -6422,6 +7088,19 @@ function renderHorsecarLineList() {
       mobileSystemActionsEl.querySelectorAll('[data-mobile-system]').forEach(btn => {
         btn.addEventListener('click', () => handleTouchAction(btn.dataset.mobileSystem));
       });
+    }
+    if (mobileSpeedIndicatorEl) {
+      mobileSpeedIndicatorEl.addEventListener('click', () => {
+        const current = timeControl.speed;
+        const idx = SPEED_ORDER.indexOf(current);
+        const next = SPEED_ORDER[(idx + 1) % SPEED_ORDER.length];
+        timeControl.speed = next;
+        updateControlButtons();
+        if (tileInfoEl) {
+          tileInfoEl.textContent = `時間速度：${SPEED_LABELS[next] || '1x'}`;
+        }
+      });
+      updateMobileSpeedButton();
     }
     document.querySelectorAll('[data-mobile-mode]').forEach(btn => {
       mobileModeButtons.push(btn);
@@ -8296,7 +8975,8 @@ function renderHorsecarLineList() {
     WALLED: 'walled_city',
     CITY: 'city',
     CASTLE: 'castle',
-    CAPITAL: 'capital'
+    CAPITAL: 'capital',
+    PLANNED: 'planned_city',
   };
 
   const BASE_LABEL = {
@@ -8314,6 +8994,7 @@ function renderHorsecarLineList() {
     [CITY.CITY]: '都市',
     [CITY.CASTLE]: '城',
     [CITY.CAPITAL]: '王都',
+    [CITY.PLANNED]: '計画都市',
   };
 
   const CITY_LIST_PRIORITY = {
@@ -8322,6 +9003,7 @@ function renderHorsecarLineList() {
     [CITY.CITY]: 4,
     [CITY.WALLED]: 3,
     [CITY.TOWN]: 2,
+    [CITY.PLANNED]: 0,
     [CITY.VILLAGE]: 1,
   };
 
@@ -8987,8 +9669,9 @@ let railMaintenanceLastTurn = 0;
     const prevH = canvas.height || 0;
     const targetW = window.innerWidth || prevW || 1200;
     const targetH = window.innerHeight || prevH || 740;
+    const reservedHeight = refreshMobileLayout();
     const newW = Math.max(600, targetW);
-    const newH = Math.max(400, targetH);
+    const newH = Math.max(400, targetH - reservedHeight);
     canvas.width = newW;
     canvas.height = newH;
     recenterView(true);
@@ -9668,6 +10351,14 @@ let railMaintenanceLastTurn = 0;
       ctx.lineWidth = 2;
       ctx.strokeRect(-4.5, -8, 9, 9);
       ctx.lineWidth = 1;
+    } else if (kind === CITY.PLANNED) {
+      ctx.strokeStyle = 'rgba(148,220,255,0.9)';
+      ctx.setLineDash([2, 2]);
+      ctx.strokeRect(-3.5, -6, 7, 6);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(148,220,255,0.2)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-3.5, -6, 7, 6);
     } else if (kind === CITY.CITY) {
       ctx.fillStyle = 'rgba(15,15,15,0.8)';
       ctx.fillRect(-5, -10, 10, 9);
@@ -10008,6 +10699,20 @@ let railMaintenanceLastTurn = 0;
         ctx.beginPath();
         ctx.arc(0, 0, r*0.6, 0, Math.PI*2);
         ctx.fill();
+        break;
+      case CITY.PLANNED:
+        ctx.strokeStyle = 'rgba(148,220,255,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = 'rgba(148,220,255,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, r*0.6, 0, Math.PI*2);
+        ctx.stroke();
         break;
       case CITY.TOWN:
         ctx.fillRect(-r*0.7, -r*0.7, r*1.4, r*1.4);
@@ -11048,6 +11753,25 @@ function getCityFromPoint(point) {
   return cities.find(city => city && city.x === point.x && city.y === point.y) || null;
 }
 
+function createPlannedCityAtPoint(point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+  const x = clamp(Math.round(point.x), 0, W - 1);
+  const y = clamp(Math.round(point.y), 0, H - 1);
+  const tile = map[y] && map[y][x];
+  if (!tile) return null;
+  const existing = getCityFromPoint({ x, y });
+  if (existing) return existing;
+  const city = addCityRecord(x, y, CITY.PLANNED);
+  if (!city) return null;
+  city.name = `計画都市${city.id}`;
+  city.pop = Math.max(120, city.pop || 200);
+  city.prosperity = 0.6;
+  city.stability = clamp(city.stability || 50, 40, 80);
+  city.planned = true;
+  markWorldDirty();
+  return city;
+}
+
 function getCitiesAlongLine(line) {
   if (!line || !Array.isArray(line.path)) return [];
   const seen = new Set();
@@ -11064,6 +11788,22 @@ function getLineEndpointId(line, position = 'start') {
   const point = path ? (position === 'start' ? path[0] : path[path.length - 1]) : null;
   const city = getCityFromPoint(point);
   return city ? city.id : null;
+}
+
+function ensureLineEndpointCity(line, position = 'start') {
+  if (!line) return null;
+  const key = position === 'start' ? 'cityAId' : 'cityBId';
+  const directId = Number.isFinite(line[key]) ? line[key] : null;
+  if (directId != null && Number.isFinite(directId) && cities[directId]) {
+    return directId;
+  }
+  const path = Array.isArray(line.path) && line.path.length ? line.path : null;
+  const point = path ? (position === 'start' ? path[0] : path[path.length - 1]) : null;
+  if (!point) return null;
+  const city = getCityFromPoint(point) || createPlannedCityAtPoint(point);
+  if (!city) return null;
+  line[key] = city.id;
+  return city.id;
 }
 
 function getLineLabel(line) {

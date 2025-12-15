@@ -4,7 +4,9 @@
   to { opacity:1; transform:translateY(0) scale(1); }
 }
 #wrap { display:grid; place-items:center; height:100%; width:100%; }
+body.mobile-ui-enabled #wrap { height:calc(100vh - var(--mobile-ui-height, 0px)); }
 canvas { background:#07090c; border:1px solid #2a2f3a; touch-action:none; width:100%; height:100%; display:block; }
+body.mobile-ui-enabled canvas { height:100%; }
 #hud { position:fixed; left:12px; top:12px; font-size:13px; line-height:1.55; opacity:.92; user-select:none; display:none; flex-direction:column; gap:10px; max-height:calc(100vh - 24px); overflow-y:auto; padding-right:6px; scroll-behavior:smooth; touch-action:pan-y; overscroll-behavior:contain; }
   body.mobile-ui-enabled #hud,
   body.mobile-ui-enabled #tile-info,
@@ -23,7 +25,7 @@ body.mobile-ui-enabled.title-active #orientation-lock {
     left:0;
     right:0;
     bottom:0;
-    height:50vh;
+    height:var(--mobile-ui-height,50vh);
     z-index:120;
     pointer-events:none;
   }
@@ -94,6 +96,23 @@ body.mobile-news-open #mobile-ui {
     gap:4px;
     font-size:14px;
   }
+  #mobile-speed-indicator {
+    border:none;
+    padding:4px 10px;
+    align-self:flex-start;
+    border-radius:999px;
+    background:rgba(255,255,255,0.08);
+    color:#f5f7ff;
+    font-size:11px;
+    letter-spacing:0.08em;
+    cursor:pointer;
+  }
+  #mobile-speed-indicator:hover {
+    background:rgba(255,255,255,0.16);
+  }
+  #mobile-speed-indicator.mobile-speed-paused {
+    background:rgba(255,138,125,0.22);
+  }
   #mobile-context-title {
     font-weight:600;
     letter-spacing:0.08em;
@@ -102,6 +121,18 @@ body.mobile-news-open #mobile-ui {
     font-size:12px;
     color:#a3b8ff;
     letter-spacing:0.08em;
+  }
+  #mobile-news-ticker {
+    font-size:12px;
+    padding:6px 10px;
+    border-radius:10px;
+    background:rgba(31,43,76,0.5);
+    border:1px solid rgba(255,255,255,0.08);
+    color:#d8e6ff;
+    line-height:1.4;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    overflow:hidden;
   }
   #mobile-context-actions {
     display:flex;
@@ -124,6 +155,23 @@ body.mobile-news-open #mobile-ui {
   }
   #mobile-context-actions button.confirm {
     background:linear-gradient(135deg,#b85e2c,#ff904d);
+  }
+  #mobile-system-actions {
+    display:none;
+    flex-direction:column;
+    gap:8px;
+  }
+  #mobile-system-actions .mobile-system-btn {
+    border:none;
+    border-radius:12px;
+    padding:10px;
+    font-size:13px;
+    background:linear-gradient(135deg,#1c2437,#2f3360);
+    color:#f5f7ff;
+    cursor:pointer;
+  }
+  #mobile-system-actions .mobile-system-btn:hover {
+    background:linear-gradient(135deg,#2f3a5b,#5462a0);
   }
   #mobile-info-stack {
     display:flex;
