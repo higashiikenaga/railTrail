@@ -43,25 +43,71 @@
     }
     return false;
   })();
-  let mobileActivePanel = null;
-  const mobileBarButtons = [];
-  let mobileBar = null;
-  let mobileOverlay = null;
+  const mobileModeButtons = [];
+  const MOBILE_MODE_LABELS = {
+    world: '世界',
+    actions: '行動',
+    info: '情報',
+    story: 'ストーリー',
+  };
+  const MOBILE_MODE_ACTIONS = {
+    world: [
+      { actionId: 'toggle-2d', label: '2D表示' },
+      { actionId: 'toggle-civ', label: '文明度' },
+      { actionId: 'toggle-roads', label: '道路表示' },
+    ],
+    actions: [
+      { actionId: 'select-capital', label: '首都選定', confirm: true, disabled: () => isCapitalDevelopmentLocked() },
+      { actionId: 'develop', label: '開拓', confirm: true, disabled: () => isCapitalDevelopmentLocked() },
+      { actionId: 'manage-military', label: '軍備編成', confirm: true },
+    ],
+    info: [
+      { handler: () => openStoryTimelineOverlay(), label: '王命履歴' },
+      { handler: () => openNationOverviewOverlay(), label: '国家情報' },
+      { handler: () => showCityListOverlay(), label: '都市一覧' },
+    ],
+    story: [
+      { handler: () => openStoryTimelineOverlay(), label: 'ストーリー履歴' },
+      {
+        handler: () => handleStoryEndRequest(),
+        label: '譲る',
+        disabled: () => !ensureStoryScenarioState()?.storyEndReady,
+      },
+      {
+        handler: () => openPopulationPlanOverlay(),
+        label: '人口増加計画',
+        confirm: true,
+        disabled: () => roles.player !== 'king',
+      },
+    ],
+  };
+  function isMobileUIEnabled() {
+    return !!(document && document.body && document.body.classList.contains('mobile-ui-enabled'));
+  }
+  let mobileActiveMode = 'world';
   let orientationLockEl = null;
-  let mobilePanelElements = {};
+  let mobileContextPanel = null;
   let mobileInfoMirror = null;
   let mobileStatsMirror = null;
-  let mobileTickerEl = null;
-  let mobileTimeLabel = null;
-  let mobileSpeedButton = null;
-  let mobileNewsActionsEl = null;
   let mobileModalShell = null;
   let mobileModalHeaderEl = null;
   let mobileModalBackBtn = null;
   let mobileModalTitleEl = null;
-  const mobileStoryEndBtn = document.querySelector('[data-panel-action="story-abdicate"]');
-  const mobileObservers = [];
+  let mobileContextActionsEl = null;
+  let mobileContextTitleEl = null;
+  let mobileContextSubtitleEl = null;
+  let mobileInputBarEl = null;
+  let mobileInputMessageEl = null;
+  let mobileStoryInputField = null;
+  let mobileStoryGenderSelect = null;
+  let mobileInputPrimaryBtn = null;
+  let mobileInputSecondaryBtn = null;
+  let mobileInputNextBtn = null;
+  let mobileConfirmAction = null;
+  let mobileStorySetupCallback = null;
+  let mobileInputMode = null;
   const mobileOverlayHistory = [];
+  const mobileObservers = [];
 
   function requestCapitalSelection() {
     pendingCapitalSelection = true;
@@ -1686,19 +1732,17 @@
         lastRoyalNewsOverlayId = overlayId;
       }
 
-      function showRoyalNewspaper(entries, turn) {
+      function showRoyalNewspaper(entries, turn, options = {}) {
         if (!entries.length) return;
         const monthLabel = formatGameDate(turn);
         archiveMonthlyNewspaper(turn, entries);
         updateMobileNewsTicker();
-        if (mobileNewsActionsEl) {
-          renderMobileNewsActions(entries, turn);
-        }
-        if (document.body && document.body.classList.contains('mobile-ui-enabled')) {
+        const isMobileUI = !!(document.body && document.body.classList.contains('mobile-ui-enabled'));
+        const autoPopupAllowed = options.forceOverlay || roles.player === 'king';
+        if (isMobileUI || !autoPopupAllowed) {
           playSystemSound('news');
           return;
         }
-        clearMobileNewsActions();
         openRoyalNewsOverlay(entries, turn, monthLabel, true);
         playSystemSound('news');
       }
@@ -1866,7 +1910,7 @@
             viewBtn.style.fontSize = '11px';
             viewBtn.textContent = '閲覧';
             viewBtn.addEventListener('click', () => {
-              showRoyalNewspaper(issue.entries, issue.turn);
+              showRoyalNewspaper(issue.entries, issue.turn, { forceOverlay: true });
             });
             issueRow.appendChild(label);
             issueRow.appendChild(viewBtn);
@@ -2037,7 +2081,7 @@
         viewBtn.style.padding = '4px 10px';
         viewBtn.textContent = '全文表示';
         viewBtn.addEventListener('click', () => {
-          showRoyalNewspaper(issue.entries || [], issue.turn);
+          showRoyalNewspaper(issue.entries || [], issue.turn, { forceOverlay: true });
         });
         actionRow.appendChild(viewBtn);
         row.appendChild(actionRow);
@@ -3239,6 +3283,10 @@
     }
 
   function openStorySetupWindow(options = {}) {
+    if (isMobileUIEnabled()) {
+      openMobileStorySetup(options);
+      return;
+    }
     const container = document.createElement('div');
     const onComplete = typeof options.afterSetup === 'function' ? options.afterSetup : null;
 
@@ -5849,11 +5897,6 @@ function renderHorsecarLineList() {
           populationPlanBtn.disabled = !enabled;
         }
     refreshPanelActionStates();
-    updateMobileSpeedButton();
-    if (mobileStoryEndBtn) {
-      mobileStoryEndBtn.style.display = storyEndReady ? '' : 'none';
-      mobileStoryEndBtn.disabled = !storyEndReady;
-    }
   }
 
   function handleTouchAction(action) {
@@ -6016,31 +6059,6 @@ function renderHorsecarLineList() {
     });
   }
 
-  function updateMobilePanels() {
-    if (mobileOverlay) {
-      mobileOverlay.classList.toggle('panel-open', Boolean(mobileActivePanel));
-    }
-    Object.entries(mobilePanelElements).forEach(([key, el]) => {
-      if (!el) return;
-      el.classList.toggle('visible', mobileActivePanel === key);
-    });
-    mobileBarButtons.forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.panelTarget === mobileActivePanel);
-    });
-  }
-
-  function toggleMobilePanel(panelId) {
-    if (!document.body.classList.contains('mobile-ui-enabled')) return;
-    mobileActivePanel = mobileActivePanel === panelId ? null : panelId;
-    updateMobilePanels();
-  }
-
-  function closeMobilePanel() {
-    if (!mobileActivePanel) return;
-    mobileActivePanel = null;
-    updateMobilePanels();
-  }
-
   function updateOrientationLock() {
     if (!orientationLockEl) return;
     const shouldShow =
@@ -6090,57 +6108,190 @@ function renderHorsecarLineList() {
     }
   }
 
-      function renderMobileNewsActions(entries, turn) {
-        if (!mobileNewsActionsEl) return;
-        mobileNewsActionsEl.innerHTML = '';
-        if (!entries || !entries.length) {
-          mobileNewsActionsEl.style.display = 'none';
-          return;
-        }
-        const showEntryButtons = entries.length > 1;
-        if (showEntryButtons) {
-          const slab = entries.slice(0, 3);
-          slab.forEach(entry => {
-            const btn = document.createElement('button');
-            const text = (entry.summary || '').trim();
-            const short = text.length > 16 ? `${text.slice(0, 16)}…` : text;
-            btn.textContent = short || '詳細';
-            if (text) btn.title = text;
-            btn.type = 'button';
-            btn.addEventListener('click', () => showMobileNewsEntry(entry, turn));
-            mobileNewsActionsEl.appendChild(btn);
-          });
-        }
-        const more = document.createElement('button');
-        more.textContent = '新聞詳細';
-        more.type = 'button';
-        more.addEventListener('click', () => openRoyalNewsOverlay(entries, turn, formatGameDate(turn), true));
-        mobileNewsActionsEl.appendChild(more);
-        mobileNewsActionsEl.style.display = 'flex';
-      }
+  function setActiveMobileMode(mode) {
+    const target = MOBILE_MODE_ACTIONS[mode] ? mode : 'world';
+    mobileActiveMode = target;
+    mobileModeButtons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mobileMode === target);
+    });
+    if (mobileContextPanel) {
+      mobileContextPanel.dataset.mode = target;
+    }
+    renderMobileContextActions();
+    updateMobileContextHeading();
+  }
 
-      function clearMobileNewsActions() {
-        if (!mobileNewsActionsEl) return;
-        mobileNewsActionsEl.innerHTML = '';
-        mobileNewsActionsEl.style.display = 'none';
-      }
+  function renderMobileContextActions() {
+    if (!mobileContextActionsEl) return;
+    mobileContextActionsEl.innerHTML = '';
+    const entries = (MOBILE_MODE_ACTIONS[mobileActiveMode] || []).slice(0, 3);
+    if (!entries.length) {
+      const note = document.createElement('div');
+      note.textContent = '利用できる操作がありません。';
+      note.style.opacity = '0.7';
+      mobileContextActionsEl.appendChild(note);
+      return;
+    }
+    entries.forEach(entry => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = entry.label;
+      if (entry.description) btn.title = entry.description;
+      const disabled = typeof entry.disabled === 'function' ? entry.disabled() : false;
+      btn.disabled = disabled;
+      if (entry.confirm) btn.classList.add('confirm');
+      btn.addEventListener('click', () => handleMobileContextAction(entry));
+      mobileContextActionsEl.appendChild(btn);
+    });
+  }
 
-      function showMobileNewsEntry(entry, turn) {
-        openRoyalNewsOverlay([entry], turn, formatGameDate(turn), true);
+  function updateMobileContextHeading() {
+    if (!mobileContextTitleEl || !mobileContextSubtitleEl) return;
+    mobileContextTitleEl.textContent = MOBILE_MODE_LABELS[mobileActiveMode] || '世界';
+    mobileContextSubtitleEl.textContent = formatGameDate();
+  }
+
+  function handleMobileContextAction(entry) {
+    if (!entry || mobileInputMode) return;
+    runMobileContextAction(entry);
+  }
+
+  function runMobileContextAction(entry, bypassConfirm = false) {
+    if (!bypassConfirm && entry.confirm && isMobileUIEnabled()) {
+      requestMobileConfirm(entry);
+      return;
+    }
+    const handler = entry.handler || (() => {
+      if (entry.actionId) triggerHUDButton(entry.actionId);
+    });
+    handler();
+  }
+
+  function requestMobileConfirm(entry) {
+    if (!entry) return;
+    mobileConfirmAction = entry;
+    showMobileInputBar('confirm', {
+      message: `${entry.label} を実行しますか？`,
+      primaryLabel: '実行',
+      secondaryLabel: 'キャンセル',
+    });
+  }
+
+  function showMobileInputBar(mode, opts = {}) {
+    if (!mobileInputBarEl) return;
+    const showStoryFields = mode === 'story-name';
+    if (mobileStoryInputField) {
+      mobileStoryInputField.style.display = showStoryFields ? 'block' : 'none';
+    }
+    if (mobileStoryGenderSelect) {
+      mobileStoryGenderSelect.style.display = showStoryFields ? 'block' : 'none';
+    }
+    if (mobileInputMessageEl) {
+      mobileInputMessageEl.textContent = opts.message || '操作を続けますか？';
+    }
+    if (mobileInputPrimaryBtn) {
+      mobileInputPrimaryBtn.textContent = opts.primaryLabel || 'OK';
+    }
+    if (mobileInputSecondaryBtn) {
+      mobileInputSecondaryBtn.textContent = opts.secondaryLabel || 'キャンセル';
+    }
+    if (mobileInputNextBtn) {
+      mobileInputNextBtn.classList.toggle('visible', !!opts.showNext);
+    }
+    mobileInputBarEl.classList.add('mobile-input-active');
+    mobileInputBarEl.classList.remove('mobile-input-hidden');
+    document.body.classList.add('mobile-input-active');
+    mobileInputMode = mode;
+    if (showStoryFields && mobileStoryInputField) {
+      setTimeout(() => mobileStoryInputField.focus(), 150);
+    }
+  }
+
+  function hideMobileInputBar() {
+    if (!mobileInputBarEl) return;
+    mobileInputBarEl.classList.remove('mobile-input-active');
+    mobileInputBarEl.classList.add('mobile-input-hidden');
+    document.body.classList.remove('mobile-input-active');
+    mobileConfirmAction = null;
+    mobileInputMode = null;
+    mobileStorySetupCallback = null;
+    if (mobileInputMessageEl) {
+      mobileInputMessageEl.textContent = '操作を選択してください。';
+    }
+  }
+
+  function handleMobileInputPrimary() {
+    if (!mobileInputMode) return;
+    if (mobileInputMode === 'story-name') {
+      const rawName = (mobileStoryInputField?.value || '').trim();
+      if (!rawName) {
+        if (mobileInputMessageEl) {
+          mobileInputMessageEl.textContent = '名前を入力してください。';
+        }
+        mobileStoryInputField?.focus();
+        return;
       }
+      player.profile.name = rawName;
+      player.profile.gender = mobileStoryGenderSelect?.value || 'undisclosed';
+      const playerCandidate = CANDIDATES.find(c => c.id === 'player');
+      if (playerCandidate) {
+        playerCandidate.name = player.profile.name;
+      }
+      const callback = mobileStorySetupCallback;
+      hideMobileInputBar();
+      if (callback) {
+        mobileStorySetupCallback = null;
+        callback();
+      } else {
+        startStoryMode();
+      }
+      return;
+    }
+    if (mobileInputMode === 'confirm' && mobileConfirmAction) {
+      const entry = mobileConfirmAction;
+      mobileConfirmAction = null;
+      hideMobileInputBar();
+      runMobileContextAction(entry, true);
+    }
+  }
+
+  function handleMobileInputSecondary() {
+    if (mobileInputMode === 'story-name') {
+      mobileStorySetupCallback = null;
+    }
+    hideMobileInputBar();
+  }
+
+  function handleMobileInputNext() {
+    // reserved for future multi-step inputs
+  }
+
+  function openMobileStorySetup(options = {}) {
+    mobileStorySetupCallback = typeof options.afterSetup === 'function' ? options.afterSetup : null;
+    if (mobileStoryInputField) {
+      mobileStoryInputField.value = player.profile.name || '';
+    }
+    if (mobileStoryGenderSelect) {
+      mobileStoryGenderSelect.value = player.profile.gender || 'undisclosed';
+    }
+    showMobileInputBar('story-name', {
+      message: '名前と性別を入力してください。',
+      primaryLabel: '決定',
+      secondaryLabel: 'キャンセル',
+    });
+  }
 
   function updateMobileUIVisibility() {
     const enabled = hasTouchSupport && window.innerWidth <= MOBILE_BREAKPOINT;
     document.body.classList.toggle('mobile-ui-enabled', enabled);
     if (!enabled) {
-      closeMobilePanel();
+      hideMobileInputBar();
       mobileOverlayHistory.length = 0;
       updateMobileOverlayHeader();
+    } else {
+      setActiveMobileMode(mobileActiveMode);
     }
     updateOrientationLock();
-    if (enabled) {
-      updateMobileOverlayHeader();
-    }
   }
 
   function setupInfoMirrors() {
@@ -6164,54 +6315,47 @@ function renderHorsecarLineList() {
 
   function setupMobileUI() {
     if (!hasTouchSupport) return;
-    mobileBar = document.getElementById('mobile-bar');
-    mobileOverlay = document.getElementById('mobile-overlay');
+    mobileModeButtons.length = 0;
     orientationLockEl = document.getElementById('orientation-lock');
     mobileInfoMirror = document.getElementById('mobile-info-mirror');
     mobileStatsMirror = document.getElementById('mobile-hud-stats-mirror');
-    mobileNewsActionsEl = document.getElementById('mobile-news-actions');
-    mobileSpeedButton = document.getElementById('mobile-speed-button');
-    mobileTickerEl = document.getElementById('mobile-news-ticker');
-    mobileTimeLabel = document.getElementById('mobile-time-label');
+    mobileContextPanel = document.getElementById('mobile-context-panel');
+    mobileContextActionsEl = document.getElementById('mobile-context-actions');
+    mobileContextTitleEl = document.getElementById('mobile-context-title');
+    mobileContextSubtitleEl = document.getElementById('mobile-context-subtitle');
+    mobileInputBarEl = document.getElementById('mobile-input-bar');
+    mobileInputMessageEl = document.getElementById('mobile-input-message');
+    mobileStoryInputField = document.getElementById('mobile-story-input-field');
+    mobileStoryGenderSelect = document.getElementById('mobile-story-gender-select');
+    mobileInputPrimaryBtn = document.querySelector('[data-mobile-input="primary"]');
+    mobileInputSecondaryBtn = document.querySelector('[data-mobile-input="secondary"]');
+    mobileInputNextBtn = document.querySelector('[data-mobile-input="next"]');
     mobileModalShell = document.getElementById('mobile-modal-shell');
     mobileModalHeaderEl = document.getElementById('mobile-modal-header');
     mobileModalBackBtn = document.getElementById('mobile-modal-back');
     mobileModalTitleEl = document.getElementById('mobile-modal-title');
-    mobilePanelElements = {
-      world: document.getElementById('mobile-panel-world'),
-      actions: document.getElementById('mobile-panel-actions'),
-      info: document.getElementById('mobile-panel-info'),
-    };
-    if (mobileBar) {
-      mobileBar.querySelectorAll('[data-panel-target]').forEach(btn => {
-        btn.addEventListener('click', () => toggleMobilePanel(btn.dataset.panelTarget));
-        mobileBarButtons.push(btn);
-      });
-    }
-    document.querySelectorAll('[data-panel-action]').forEach(btn => {
-      btn.addEventListener('click', () => handleTouchAction(btn.dataset.panelAction));
+    document.querySelectorAll('[data-mobile-mode]').forEach(btn => {
+      mobileModeButtons.push(btn);
+      btn.addEventListener('click', () => setActiveMobileMode(btn.dataset.mobileMode));
     });
-    document.querySelectorAll('[data-hud-action]').forEach(btn => {
-      btn.addEventListener('click', () => triggerHUDButton(btn.dataset.hudAction));
-    });
-    updateMobileUIVisibility();
-    window.addEventListener('resize', updateMobileUIVisibility);
-    window.addEventListener('orientationchange', updateMobileUIVisibility);
-    if (mobileSpeedButton) {
-      mobileSpeedButton.addEventListener('click', () => {
-        const currentIdx = SPEED_ORDER.indexOf(timeControl.speed);
-        const next = SPEED_ORDER[(currentIdx + 1) % SPEED_ORDER.length];
-        timeControl.speed = next;
-        updateControlButtons();
-      });
-    }
     if (mobileModalBackBtn) {
       mobileModalBackBtn.addEventListener('click', handleMobileOverlayBack);
     }
+    if (mobileInputPrimaryBtn) {
+      mobileInputPrimaryBtn.addEventListener('click', handleMobileInputPrimary);
+    }
+    if (mobileInputSecondaryBtn) {
+      mobileInputSecondaryBtn.addEventListener('click', handleMobileInputSecondary);
+    }
+    if (mobileInputNextBtn) {
+      mobileInputNextBtn.addEventListener('click', handleMobileInputNext);
+    }
     setupInfoMirrors();
-    updateMobileNewsTicker();
-    updateMobileTimeLabel();
-    updateMobileSpeedButton();
+    renderMobileContextActions();
+    updateMobileContextHeading();
+    updateMobileUIVisibility();
+    window.addEventListener('resize', updateMobileUIVisibility);
+    window.addEventListener('orientationchange', updateMobileUIVisibility);
   }
 
   function ensureBgmSource() {
@@ -10909,17 +11053,6 @@ function estimateScheduleEconomy(schedule) {
   };
 }
 
-  function updateMobileTimeLabel() {
-    if (!mobileTimeLabel) return;
-    mobileTimeLabel.textContent = formatGameDate();
-  }
-
-  function updateMobileSpeedButton() {
-    if (!mobileSpeedButton) return;
-    const label = SPEED_LABELS[timeControl.speed] || '1x';
-    mobileSpeedButton.textContent = `速度：${label}`;
-  }
-
   function updateHudStats() {
     if (!hudStatsEl) return;
     const sign = (globalTax - globalMaintenance) >= 0 ? '+' : '';
@@ -10939,7 +11072,7 @@ function estimateScheduleEconomy(schedule) {
       const netLabel = railNet >= 0 ? `+${railNet}` : `${railNet}`;
       hudStatsEl.innerHTML += `<br><span style="font-size:11px; font-weight:normal; color:#a8ffb5;">鉄道 ${railPassengerFlow}人 / ${netLabel}資金 (${railRevenueLastTurn}収 / ${railMaintenanceLastTurn}維)</span>`;
     }
-    updateMobileTimeLabel();
+    updateMobileContextHeading();
   }
 
 function markSnow(rand) {

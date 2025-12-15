@@ -98,17 +98,37 @@
   <audio id="title-bgm" loop preload="auto"></audio>
   <div id="story-overlay-root"></div>
   <div id="mobile-ui">
-    <div id="orientation-lock">
-      <div class="orientation-card">
-        <p>縦画面でプレイしてください</p>
-        <p>端末を回転させるとゲームを続けられます。</p>
+    <div id="mobile-mode-panel">
+      <button type="button" data-mobile-mode="world" class="mobile-mode-btn active">世界</button>
+      <button type="button" data-mobile-mode="actions" class="mobile-mode-btn">行動</button>
+      <button type="button" data-mobile-mode="info" class="mobile-mode-btn">情報</button>
+      <button type="button" data-mobile-mode="story" class="mobile-mode-btn">ストーリー</button>
+    </div>
+    <div id="mobile-context-panel">
+      <div id="mobile-context-heading">
+        <div id="mobile-context-title">世界</div>
+        <div id="mobile-context-subtitle">0年0月</div>
+      </div>
+      <div id="mobile-context-actions"></div>
+      <div id="mobile-info-stack">
+        <div id="mobile-hud-stats-mirror" class="mobile-info-block"></div>
+        <div id="mobile-info-mirror" class="mobile-info-block"></div>
       </div>
     </div>
-    <div id="mobile-top-strip">
-      <div id="mobile-news-ticker">王令新聞</div>
-      <div id="mobile-news-actions" class="mobile-news-actions"></div>
-      <div id="mobile-time-label">0年0月</div>
-      <button type="button" id="mobile-speed-button">速度：1x</button>
+    <div id="mobile-input-bar" class="mobile-input-hidden">
+      <div id="mobile-input-message">操作を選択してください。</div>
+      <input id="mobile-story-input-field" type="text" maxlength="12" autocomplete="off" placeholder="名前を入力">
+      <select id="mobile-story-gender-select">
+        <option value="male">male</option>
+        <option value="female">female</option>
+        <option value="other">other</option>
+        <option value="undisclosed">undisclosed</option>
+      </select>
+      <div id="mobile-input-buttons">
+        <button type="button" data-mobile-input="primary" class="btn">OK</button>
+        <button type="button" data-mobile-input="secondary" class="btn">キャンセル</button>
+        <button type="button" data-mobile-input="next" class="btn mobile-input-next">次へ</button>
+      </div>
     </div>
     <div id="mobile-modal-shell">
       <div id="mobile-modal-header">
@@ -116,63 +136,12 @@
         <div id="mobile-modal-title"></div>
       </div>
     </div>
-    <div id="mobile-overlay" class="mobile-overlay">
-      <div class="mobile-panel" id="mobile-panel-world">
-        <div class="mobile-panel-header">世界</div>
-        <div class="mobile-panel-content">
-          <p>マップ表示と情報を切り替えます</p>
-          <div class="mobile-toggle-grid">
-            <button type="button" data-panel-action="toggle-2d">2D表示</button>
-            <button type="button" data-panel-action="toggle-civ">文明度</button>
-            <button type="button" data-panel-action="toggle-roads">道路</button>
-            <button type="button" data-panel-action="toggle-names">都市名</button>
-            <button type="button" data-panel-action="toggle-traffic">交通</button>
-            <button type="button" data-panel-action="reset-view">全体表示</button>
-          </div>
-        </div>
+    <div id="mobile-overlay" class="mobile-overlay"></div>
+    <div id="orientation-lock">
+      <div class="orientation-card">
+        <p>縦画面でプレイしてください</p>
+        <p>端末を回転させるとゲームを続けられます。</p>
       </div>
-      <div class="mobile-panel" id="mobile-panel-actions">
-        <div class="mobile-panel-header">行動</div>
-        <div class="mobile-panel-content">
-          <p>重要な国政・候補操作</p>
-          <div class="mobile-toggle-grid">
-            <button type="button" data-panel-action="select-capital">王位選定</button>
-            <button type="button" data-panel-action="develop">開拓</button>
-            <button type="button" data-panel-action="candidate-infra">インフラ整備</button>
-            <button type="button" data-panel-action="candidate-security">治安維持</button>
-            <button type="button" data-panel-action="candidate-magic">魔法研究</button>
-            <button type="button" data-panel-action="enact-law">法律制定</button>
-            <button type="button" data-panel-action="manage-military">軍備編成</button>
-            <button type="button" data-panel-action="population-plan">人口増加計画</button>
-            <button type="button" data-panel-action="develop-frontier">未開地</button>
-            <button type="button" data-panel-action="road-maintenance">道路維持</button>
-            <button type="button" data-panel-action="rail-maintenance">馬車鉄道</button>
-            <button type="button" data-hud-action="city-list">都市一覧</button>
-            <button type="button" data-hud-action="story-timeline">王命履歴</button>
-            <button type="button" data-hud-action="nation-overview">国家情報</button>
-          </div>
-        </div>
-      </div>
-      <div class="mobile-panel" id="mobile-panel-info">
-        <div class="mobile-panel-header">情報</div>
-        <div class="mobile-panel-content info-content">
-          <div id="mobile-hud-stats-mirror" class="mobile-stats-mirror"></div>
-          <div id="mobile-info-mirror" class="mobile-info-mirror"></div>
-          <div class="mobile-toggle-grid">
-            <button type="button" data-panel-action="save-world">セーブ</button>
-            <button type="button" data-panel-action="load-world">ロード</button>
-            <button type="button" data-panel-action="return-title">タイトルへ戻る</button>
-            <button type="button" data-panel-action="rename-city">都市改名</button>
-            <button type="button" data-panel-action="abdicate">王位譲渡</button>
-            <button type="button" data-panel-action="story-abdicate" style="display:none;">譲る</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div id="mobile-bar" class="mobile-bar">
-      <button type="button" data-panel-target="world">世界</button>
-      <button type="button" data-panel-target="actions">行動</button>
-      <button type="button" data-panel-target="info">情報</button>
     </div>
   </div>
   <script src="main.js" defer></script>
