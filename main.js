@@ -8,6 +8,7 @@
   let frontierActionBtn = null;
   let roadManualBtn = null;
   let railManualBtn = null;
+  let populationPlanBtn = document.querySelector('[data-action="population-plan"]') || null;
   let candidateLogEl = document.getElementById('candidate-log') || null;
   const hudEl = document.getElementById('hud');
   const titleContainer = document.getElementById('title-ui');
@@ -1075,6 +1076,8 @@
         story_building_era: '建設の時代',
         story_politics_era: '政治の時代',
         story_division_era: '分裂の時代',
+        metropolitan_cluster: '都市圏成長',
+        population_plan: '人口増加計画',
       };
       const ACTION_DEFS = {
         infrastructure: {
@@ -2396,6 +2399,33 @@
     LEGACY: 'legacy',
   };
 
+  const METROPOLITAN_POP_THRESHOLD = 9000;
+  const METROPOLITAN_DISTANCE = 10;
+  const METROPOLITAN_GROWTH_BONUS = 0.02;
+  const METROPOLITAN_MIN_CLUSTER = 2;
+
+  const POPULATION_PLANS = [
+    {
+      id: 'immigration',
+      label: '移民受け入れ計画',
+      description: '外国人と新市民を受け入れ、都市の人口と繁栄を一気に押し上げます。',
+      popBoost: 1200,
+      stability: -4,
+      prosperity: 1.4,
+      summary: '王令新聞「移民受け入れ計画」{city}の人口は急増し、新たな活気を得た。',
+    },
+    {
+      id: 'daemon_cohab',
+      label: '魔族共生計画',
+      description: '魔族を共生者として迎え、魔力と労働力を取り込む大胆な決断。',
+      popBoost: 800,
+      stability: -6,
+      prosperity: 2.1,
+      military: 5,
+      summary: '王令新聞「魔族共生計画」{city}では魔力の奔流とともに人口が増えた。',
+    },
+  ];
+
   function createStoryPhaseFlags() {
     return {
       buildingEra: false,
@@ -3706,6 +3736,83 @@
         }
         function restoreWorldState(data) {
           resetWorldState(data);
+        }
+
+        function getMetropolitanState() {
+          const state = getWorldState();
+          if (!state.metropolitan || typeof state.metropolitan !== 'object') {
+            state.metropolitan = { reportedClusters: [] };
+          }
+          if (!Array.isArray(state.metropolitan.reportedClusters)) {
+            state.metropolitan.reportedClusters = [];
+          }
+          return state.metropolitan;
+        }
+
+        function detectMetropolitanClusters() {
+          const heavyCities = cities
+            .filter(city => city && Number.isFinite(city.id) && Number.isFinite(city.pop) && city.pop >= METROPOLITAN_POP_THRESHOLD);
+          if (!heavyCities.length) return [];
+          const clusters = [];
+          const visited = new Set();
+          heavyCities.forEach(city => {
+            if (visited.has(city.id)) return;
+            const stack = [city];
+            visited.add(city.id);
+            const cluster = [];
+            while (stack.length) {
+              const current = stack.pop();
+              cluster.push(current);
+              heavyCities.forEach(other => {
+                if (visited.has(other.id) || other.id === current.id) return;
+                const dx = current.x - other.x;
+                const dy = current.y - other.y;
+                if (Math.hypot(dx, dy) <= METROPOLITAN_DISTANCE) {
+                  visited.add(other.id);
+                  stack.push(other);
+                }
+              });
+            }
+            if (cluster.length >= METROPOLITAN_MIN_CLUSTER) {
+              clusters.push(cluster);
+            }
+          });
+          return clusters;
+        }
+
+        function applyMetropolitanGrowth() {
+          if (!Array.isArray(cities) || !cities.length) return;
+          const clusters = detectMetropolitanClusters();
+          if (!clusters.length) return;
+          const metroState = getMetropolitanState();
+          const knownKeys = new Set(metroState.reportedClusters);
+          clusters.forEach(cluster => {
+            const ids = cluster
+              .map(entry => entry && Number.isFinite(entry.id) ? entry.id : null)
+              .filter(Number.isFinite);
+            if (!ids.length) return;
+            ids.sort((a, b) => a - b);
+            const key = ids.join(',');
+            cluster.forEach(city => {
+              if (!city) return;
+              const boost = Math.max(1, Math.round((city.pop || 0) * METROPOLITAN_GROWTH_BONUS));
+              city.pop = Math.round((city.pop || 0) + boost);
+              city.pop = Math.max(city.pop, 150);
+            });
+            if (!knownKeys.has(key)) {
+              knownKeys.add(key);
+              if (isStoryMode) {
+                const names = cluster.map(entry => entry.name || `都市${entry.id}`).join('・');
+                const summary = `王令新聞「都市圏の形成」${names}が連携を強め、人口と繁栄が膨らむ。`;
+                publishStoryNews(summary);
+                recordStoryAction('royal-newspaper', 'metropolitan_cluster', {
+                  storyLabel: summary,
+                });
+              }
+            }
+          });
+          const trimmed = Array.from(knownKeys);
+          metroState.reportedClusters = trimmed.length > 12 ? trimmed.slice(-12) : trimmed;
         }
 
         function getResearchInstitutes() {
@@ -5543,6 +5650,13 @@ function renderHorsecarLineList() {
       case 'manage-military':
         openMilitaryCompositionOverlay();
         break;
+      case 'population-plan':
+        if (roles.player !== 'king') {
+          if (tileInfoEl) tileInfoEl.textContent = '王でないと人口増加計画を実行できません。';
+          break;
+        }
+        openPopulationPlanOverlay();
+        break;
       case 'rename-city':
         openCityRenameOverlay();
         break;
@@ -5666,6 +5780,9 @@ function renderHorsecarLineList() {
           active = false;
         }
       else if (action === 'city-list') active = cityListVisible;
+      else if (action === 'population-plan') {
+        disabled = roles.player !== 'king';
+      }
       else if (action === 'story-timeline') {
         btn.style.display = isStoryMode ? '' : 'none';
         active = false;
@@ -5698,7 +5815,7 @@ function renderHorsecarLineList() {
       }
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        if (['toggle-names','time-2x','time-3x','select-capital','develop','story-timeline','story-abdicate'].includes(action)) {
+        if (['toggle-names','time-2x','time-3x','select-capital','develop','story-timeline','story-abdicate','population-plan'].includes(action)) {
             btn.disabled = disabled;
           } else if (btn.disabled) {
             btn.disabled = false;
@@ -5725,6 +5842,11 @@ function renderHorsecarLineList() {
         if (railManualBtn) {
           railManualBtn.style.display = infrastructureEnabled ? 'inline-flex' : 'none';
           railManualBtn.disabled = !infrastructureEnabled;
+        }
+        if (populationPlanBtn) {
+          const enabled = roles.player === 'king';
+          populationPlanBtn.style.display = enabled ? 'inline-flex' : 'none';
+          populationPlanBtn.disabled = !enabled;
         }
     refreshPanelActionStates();
     updateMobileSpeedButton();
@@ -5816,6 +5938,13 @@ function renderHorsecarLineList() {
         break;
       case 'manage-military':
         openMilitaryCompositionOverlay();
+        break;
+      case 'population-plan':
+        if (roles.player !== 'king') {
+          if (tileInfoEl) tileInfoEl.textContent = '王でないと人口増加計画を実行できません。';
+          break;
+        }
+        openPopulationPlanOverlay();
         break;
       case 'abdicate':
         openAbdicationOverlay();
@@ -6492,6 +6621,168 @@ function renderHorsecarLineList() {
       body: container,
       buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
       mobileTitle: '軍備編成',
+      width: Math.min(520, window.innerWidth - 40),
+    });
+  }
+
+  function applyPopulationPlan(planId, cityId) {
+    const plan = POPULATION_PLANS.find(entry => entry && entry.id === planId);
+    const target = cities.find(city => city && city.id === cityId);
+    if (!plan || !target) return false;
+    const cityName = target.name || `都市${target.id}`;
+    const boost = Math.max(0, Math.round(plan.popBoost || 0));
+    target.pop = Math.round((target.pop || 0) + boost);
+    target.pop = Math.max(target.pop, 150);
+    target.stability = clamp((target.stability || 50) + (plan.stability || 0), 0, 120);
+    target.prosperity = clamp((target.prosperity || 1) + (plan.prosperity || 0), 0.2, 12);
+    if (typeof plan.military === 'number' && plan.military !== 0) {
+      target.military = clamp((target.military || 60) + plan.military, 20, 360);
+    }
+    const template = plan.summary || `${plan.label} で {city} を急伸させた。`;
+    const summary = template.replace('{city}', cityName);
+    if (isStoryMode) {
+      publishStoryNews(summary);
+      recordStoryAction('royal-newspaper', 'population_plan', {
+        cityId,
+        storyLabel: summary,
+      });
+    }
+    markWorldDirty();
+    updateHudStats();
+    render();
+    if (tileInfoEl) {
+      tileInfoEl.textContent = `${plan.label}を${cityName}で実行しました。`;
+    }
+    return true;
+  }
+
+  function openPopulationPlanOverlay() {
+    if (!storyOverlayRoot || !worldReady || appState !== 'map') return;
+    if (roles.player !== 'king') {
+      if (tileInfoEl) {
+        tileInfoEl.textContent = '王でないと人口増加計画を実行できません。';
+      }
+      return;
+    }
+    const overlayId = 'population-plan';
+    if (overlayStack.find(entry => entry.id === overlayId)) return;
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    const guide = document.createElement('div');
+    guide.style.fontSize = '12px';
+    guide.style.opacity = '0.8';
+    guide.textContent = '都市を選び、移民や魔族との共生計画を選択すると人口と繁栄が一気に上昇します。';
+    container.appendChild(guide);
+    const availableCities = cities.filter(city => city && Number.isFinite(city.id));
+    const citySelect = document.createElement('select');
+    citySelect.style.width = '100%';
+    citySelect.style.padding = '6px';
+    citySelect.style.borderRadius = '6px';
+    citySelect.style.border = '1px solid rgba(255,255,255,0.2)';
+    citySelect.style.background = '#0b111f';
+    citySelect.style.color = '#f5f5f5';
+    if (!availableCities.length) {
+      const empty = document.createElement('div');
+      empty.style.fontSize = '11px';
+      empty.style.opacity = '0.6';
+      empty.textContent = '都市が存在しないため計画できません。';
+      container.appendChild(empty);
+    } else {
+      availableCities.forEach(city => {
+        const option = document.createElement('option');
+        option.value = city.id;
+        const label = city.name || `都市${city.id}`;
+        const popLabel = city.pop ? `（人口約${Math.round(city.pop)}）` : '';
+        option.textContent = `${label}${popLabel}`;
+        citySelect.appendChild(option);
+      });
+      container.appendChild(citySelect);
+    }
+    const plansColumn = document.createElement('div');
+    plansColumn.style.display = 'flex';
+    plansColumn.style.flexDirection = 'column';
+    plansColumn.style.gap = '8px';
+    POPULATION_PLANS.forEach(plan => {
+      const card = document.createElement('div');
+      card.style.border = '1px solid rgba(255,255,255,0.12)';
+      card.style.borderRadius = '8px';
+      card.style.padding = '10px';
+      card.style.background = 'rgba(255,255,255,0.02)';
+      card.style.display = 'flex';
+      card.style.flexDirection = 'column';
+      card.style.gap = '6px';
+      const header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'baseline';
+      const label = document.createElement('strong');
+      label.textContent = plan.label;
+      label.style.fontSize = '14px';
+      header.appendChild(label);
+      const popInfo = document.createElement('span');
+      popInfo.style.fontSize = '11px';
+      popInfo.style.opacity = '0.7';
+      popInfo.textContent = `人口+${plan.popBoost || 0}`;
+      header.appendChild(popInfo);
+      card.appendChild(header);
+      const desc = document.createElement('div');
+      desc.style.fontSize = '12px';
+      desc.style.color = '#d8dee9';
+      desc.textContent = plan.description || '';
+      card.appendChild(desc);
+      const stats = document.createElement('div');
+      stats.style.fontSize = '11px';
+      stats.style.opacity = '0.7';
+      const statParts = [];
+      if (typeof plan.stability === 'number') {
+        statParts.push(`安定度${plan.stability >= 0 ? '+' : ''}${plan.stability}`);
+      }
+      if (typeof plan.prosperity === 'number') {
+        statParts.push(`繁栄+${plan.prosperity}`);
+      }
+      if (typeof plan.military === 'number') {
+        statParts.push(`軍力+${plan.military}`);
+      }
+      stats.textContent = statParts.join(' / ');
+      card.appendChild(stats);
+      const buttonRow = document.createElement('div');
+      buttonRow.style.display = 'flex';
+      buttonRow.style.justifyContent = 'flex-end';
+      const execBtn = document.createElement('button');
+      execBtn.className = 'btn';
+      execBtn.textContent = '実行する';
+      execBtn.addEventListener('click', () => {
+        if (!availableCities.length) {
+          if (tileInfoEl) {
+            tileInfoEl.textContent = '都市がないため計画を実行できません。';
+          }
+          return;
+        }
+        const selectedId = Number(citySelect.value);
+        if (!Number.isFinite(selectedId)) {
+          if (tileInfoEl) {
+            tileInfoEl.textContent = '都市を選択してください。';
+          }
+          return;
+        }
+        const applied = applyPopulationPlan(plan.id, selectedId);
+        if (!applied && tileInfoEl) {
+          tileInfoEl.textContent = '計画の実行に失敗しました。';
+        }
+      });
+      buttonRow.appendChild(execBtn);
+      card.appendChild(buttonRow);
+      plansColumn.appendChild(card);
+    });
+    container.appendChild(plansColumn);
+    showStoryOverlay({
+      id: overlayId,
+      title: '人口増加計画',
+      body: container,
+      modal: true,
+      buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
       width: Math.min(520, window.innerWidth - 40),
     });
   }
@@ -10912,6 +11203,7 @@ function markSnow(rand) {
       taxTotal += city.pop * 0.05 * (city.prosperity * 0.5 + 0.5);
       tryPromoteCity(city);
     }
+    applyMetropolitanGrowth();
     
     globalTax = taxTotal;
     globalMaintenance = roadCount * 0.8;
