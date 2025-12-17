@@ -138,6 +138,11 @@ body.mobile-news-open #mobile-ui {
     display:flex;
     flex-direction:column;
     gap:8px;
+    position:relative;
+    padding:8px;
+    border-radius:16px;
+    background:rgba(3,5,10,0.85);
+    box-shadow:0 8px 20px rgba(0,0,0,0.4);
   }
   #mobile-context-actions button {
     border:none;
@@ -262,6 +267,7 @@ body.mobile-news-open #mobile-ui {
     pointer-events:none;
     z-index:165;
     transition:transform .3s ease, opacity .3s ease;
+    box-shadow:0 -20px 40px rgba(0,0,0,0.75);
   }
   #mobile-news-panel.visible {
     transform:translateY(0);
@@ -296,8 +302,9 @@ body.mobile-news-open #mobile-ui {
   .mobile-news-entry {
     padding:10px 12px;
     border-radius:10px;
-    background:rgba(255,255,255,0.04);
-    border:1px solid rgba(255,255,255,0.08);
+    background:linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02));
+    border:1px solid rgba(255,255,255,0.12);
+    backdrop-filter:blur(6px);
     font-size:13px;
     line-height:1.5;
   }
@@ -312,15 +319,51 @@ body.mobile-news-open #mobile-ui {
     position:fixed;
     inset:0;
     pointer-events:none;
+    z-index:150;
   }
   #mobile-modal-shell {
     position:absolute;
     inset:0;
     z-index:160;
     pointer-events:none;
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    padding-top:80px;
   }
   #mobile-modal-shell .mobile-modal-window {
     margin:0 auto;
+    pointer-events:auto;
+    background:rgba(6,8,16,0.95);
+    border-radius:18px;
+    border:1px solid rgba(255,255,255,0.2);
+    width:min(92vw,420px);
+    max-width:420px;
+    padding:6px;
+    box-shadow:0 20px 40px rgba(0,0,0,0.7);
+  }
+  #mobile-modal-shell .mobile-modal-body {
+    background:rgba(12,14,26,0.8);
+    padding:14px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,0.12);
+    max-height:60vh;
+    overflow:auto;
+  }
+  #mobile-modal-shell .mobile-modal-buttons {
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+  }
+  #mobile-modal-shell .mobile-modal-buttons button {
+    flex:1;
+    border:none;
+    border-radius:10px;
+    padding:10px;
+    font-size:14px;
+    background:linear-gradient(135deg,#1d2438,#2b3154);
+    color:#f5f7ff;
+    cursor:pointer;
   }
   #mobile-modal-header {
     position:fixed;

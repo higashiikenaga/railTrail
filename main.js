@@ -55,6 +55,13 @@
     story: 'ストーリー',
     system: 'システム',
   };
+  const MOBILE_SYSTEM_EXTRA_ACTIONS = [
+    { key: 'manage-military', label: '軍備編成' },
+    { key: 'population-plan', label: '人口増加計画' },
+    { key: 'rename-city', label: '都市改名' },
+    { key: 'abdicate', label: '王位譲渡' },
+  ];
+
   const MOBILE_MODE_ACTIONS = {
     world: [
       { actionId: 'toggle-2d', label: '2D表示' },
@@ -146,6 +153,7 @@
   const MONTHLY_ARCHIVE_LIMIT = 12;
   const storyActionTimeline = [];
   const monthlyNewspapers = [];
+  let skipMonthlyNewsAfterLoad = false;
   let lastMonthlyNewspaperTurn = -1;
   const aiActionLog = [];
   const AI_LOG_LIMIT = 12;
@@ -163,6 +171,15 @@
   const PRE_OPEN_BLACK = 1;
   const POST_OPEN_BLACK = 1;
   const OPENING_DURATION = PRE_OPEN_BLACK + OPENING_AUDIO_DURATION + POST_OPEN_BLACK;
+  const BETA_OPENING_DURATION = 40;
+  const BETA_RING_LAYERS = 6;
+  const BETA_HALO_POINTS = 14;
+  const BETA_CONVERGING_COUNT = 18;
+  const BETA_SYMBOL_CONFIG = [
+    { radiusFactor: 0.45, dash: 8, gap: 6 },
+    { radiusFactor: 0.58, dash: 4, gap: 6 },
+    { radiusFactor: 0.7, dash: 2, gap: 10 },
+  ];
   let openingAudioDataPromise = fetch(OPENING_AUDIO_URL)
     .then(res => res.ok ? res.arrayBuffer() : Promise.reject(new Error('audio fetch failed')))
     .catch(err => {
@@ -426,6 +443,172 @@
     ctx.restore();
   }
 
+  function getBetaStage(elapsed) {
+    const stage = Math.floor(elapsed / 10);
+    return Math.min(3, Math.max(0, stage));
+  }
+
+  function drawBetaRingGrid(ctx, cx, cy, baseRadius, elapsed) {
+    ctx.save();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.2;
+    for (let layer = 0; layer < BETA_RING_LAYERS; layer++) {
+      const radius = baseRadius * (0.6 + layer * 0.08 + Math.sin(elapsed * 0.2 + layer) * 0.02);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.globalAlpha = 0.25 + layer * 0.05;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBetaMagicSigils(ctx, cx, cy, baseRadius, elapsed, intensity = 1) {
+    ctx.save();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    BETA_SYMBOL_CONFIG.forEach((config, idx) => {
+      const radius = baseRadius * config.radiusFactor;
+      ctx.beginPath();
+      for (let seg = 0; seg < 24; seg++) {
+        const start = (seg / 24) * Math.PI * 2 + elapsed * 0.1 * (idx + 1);
+        const end = start + (config.dash / 20);
+        ctx.arc(cx, cy, radius, start, end);
+      }
+      ctx.globalAlpha = Math.max(0.2, Math.min(1, 0.35 + idx * 0.15)) * intensity;
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  function drawBetaCityHalo(ctx, cx, cy, baseRadius, elapsed) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < BETA_HALO_POINTS; i++) {
+      const angle = (i / BETA_HALO_POINTS) * Math.PI * 2 + elapsed * 0.15;
+      const radius = baseRadius * (0.3 + Math.sin(elapsed * 0.4 + i) * 0.05);
+      const px = cx + Math.cos(angle) * radius;
+      const py = cy + Math.sin(angle) * radius;
+      const size = 6 + Math.sin(elapsed + i) * 3;
+      ctx.beginPath();
+      ctx.rect(px - size / 2, py - size / 2, size, size);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBetaCityClusters(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    ctx.save();
+    const clusterCount = 12;
+    for (let i = 0; i < clusterCount; i++) {
+      const angle = (i / clusterCount) * Math.PI * 2 + stageProgress * Math.PI;
+      const distance = baseRadius * (0.45 + 0.12 * Math.sin(elapsed * 0.3 + i));
+      const height = 10 + stageProgress * 40 + Math.sin(elapsed * 0.5 + i) * 6;
+      const width = 6 + Math.cos(elapsed * 0.4 + i) * 2;
+      const px = cx + Math.cos(angle) * distance;
+      const py = cy + Math.sin(angle) * distance;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle + Math.PI / 2);
+      ctx.fillStyle = `rgba(255,255,255,${0.15 + stageProgress * 0.45})`;
+      ctx.fillRect(-width / 2, -height, width, height);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function drawBetaMapContours(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    ctx.save();
+    const layerCount = 4;
+    for (let layer = 0; layer < layerCount; layer++) {
+      const radius = baseRadius * (0.38 + layer * 0.08);
+      const offset = elapsed * 0.18 + layer;
+      ctx.beginPath();
+      for (let seg = 0; seg <= 32; seg++) {
+        const angle = (seg / 32) * Math.PI * 2;
+        const radial = radius + Math.sin(angle * 3 + offset) * baseRadius * 0.02;
+        const px = cx + Math.cos(angle) * radial;
+        const py = cy + Math.sin(angle) * radial;
+        if (!seg) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = `rgba(255,255,255,${0.12 + stageProgress * 0.3})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    const branchCount = 8;
+    for (let i = 0; i < branchCount; i++) {
+      const angle = (i / branchCount) * Math.PI * 2 + elapsed * 0.25;
+      const inner = baseRadius * 0.2;
+      const outer = baseRadius * 1.05;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+      ctx.strokeStyle = `rgba(255,255,255,${0.08 + stageProgress * 0.25})`;
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBetaConvergingShards(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${0.1 + stageProgress * 0.35})`;
+    for (let i = 0; i < BETA_CONVERGING_COUNT; i++) {
+      const angle = (i / BETA_CONVERGING_COUNT) * Math.PI * 2 + elapsed * 0.45;
+      const startRadius = baseRadius * (1.6 - stageProgress * 0.5);
+      const endRadius = baseRadius * (0.65 + stageProgress * 0.1);
+      const radius = startRadius * (1 - stageProgress) + endRadius * stageProgress;
+      const px = cx + Math.cos(angle) * radius;
+      const py = cy + Math.sin(angle) * radius;
+      const tipRadius = radius * 0.72;
+      const tx = cx + Math.cos(angle) * tipRadius;
+      const ty = cy + Math.sin(angle) * tipRadius;
+      const width = 6 + Math.sin(elapsed * 0.4 + i) * 2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(
+        tx + Math.sin(angle) * width * 0.6,
+        ty - Math.cos(angle) * width * 0.6
+      );
+      ctx.lineTo(
+        tx - Math.sin(angle) * width * 0.6,
+        ty + Math.cos(angle) * width * 0.6
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBetaPowerRings(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,255,255,0.6)';
+    ctx.shadowBlur = 12;
+    const ringCount = 5;
+    for (let i = 0; i < ringCount; i++) {
+      const radius = baseRadius * (0.5 + i * 0.08 + stageProgress * 0.12);
+      const offset = elapsed * 0.6 + i * 0.4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, offset, offset + Math.PI * (1.0 + stageProgress * 0.4));
+      ctx.strokeStyle = `rgba(255,255,255,${0.35 + stageProgress * 0.25})`;
+      ctx.lineWidth = 1.4 + i * 0.4;
+      ctx.stroke();
+    }
+    const beamCount = 6;
+    for (let i = 0; i < beamCount; i++) {
+      const angle = (i / beamCount) * Math.PI * 2 + elapsed * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * baseRadius * 0.3, cy + Math.sin(angle) * baseRadius * 0.3);
+      ctx.lineTo(cx + Math.cos(angle) * baseRadius * 1.1, cy + Math.sin(angle) * baseRadius * 1.1);
+      ctx.strokeStyle = `rgba(255,255,255,${0.18 + stageProgress * 0.4})`;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function previewTileColor(tile) {
     if (!tile) return '#10121a';
     switch (tile.base) {
@@ -496,7 +679,7 @@
     finishOpening('skip');
   }
 
-  function renderOpeningFrame(timestamp) {
+  function renderClassicOpeningFrame(timestamp) {
     if (!openingState.playing || !openingState.ctx) return;
     if (!openingState.startTime) {
       openingState.startTime = timestamp;
@@ -596,7 +779,86 @@
       return;
     }
 
-    openingState.animationId = requestAnimationFrame(renderOpeningFrame);
+    openingState.animationId = requestAnimationFrame(openingState.renderFn || renderClassicOpeningFrame);
+  }
+
+  function renderBetaOpeningFrame(timestamp) {
+    if (!openingState.playing || !openingState.ctx) return;
+    if (!openingState.startTime) {
+      openingState.startTime = timestamp;
+    }
+    const elapsed = (timestamp - openingState.startTime) / 1000;
+    const ctx = openingState.ctx;
+    const canvas = ctx.canvas;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.fillStyle = '#01030a';
+    ctx.fillRect(0, 0, w, h);
+    const cx = w / 2;
+    const cy = h * 0.45;
+    const baseRadius = Math.min(w, h) * (0.32 + 0.03 * Math.sin(elapsed * 0.2));
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    const stage = getBetaStage(elapsed);
+    const stageProgress = Math.min(1, Math.max(0, (elapsed - stage * 10) / 10));
+    const sigilIntensity = Math.max(0.4, 1 - stage * 0.15);
+    drawBetaRingGrid(ctx, cx, cy, baseRadius, elapsed);
+    drawBetaMagicSigils(ctx, cx, cy, baseRadius, elapsed, sigilIntensity);
+    drawBetaCityHalo(ctx, cx, cy, baseRadius, elapsed);
+    const formationProgress = stage < 2 ? stageProgress : 1;
+    drawBetaConvergingShards(ctx, cx, cy, baseRadius, elapsed, formationProgress);
+    if (stage >= 1) {
+      drawBetaCityClusters(ctx, cx, cy, baseRadius, elapsed, stageProgress);
+    }
+    if (stage >= 2) {
+      drawBetaMapContours(ctx, cx, cy, baseRadius, elapsed, stageProgress);
+    }
+    if (stage >= 3) {
+      drawBetaPowerRings(ctx, cx, cy, baseRadius, elapsed, stageProgress);
+    }
+    const shimmerAngle = elapsed * (0.4 + stage * 0.05);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 0.8 + stage * 0.2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 0.85, shimmerAngle, shimmerAngle + Math.PI / 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 0.85, shimmerAngle + Math.PI, shimmerAngle + Math.PI + Math.PI / 6);
+    ctx.stroke();
+    ctx.restore();
+    if (elapsed >= 30) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      const logoY = h * 0.85;
+      const gradient = ctx.createLinearGradient(cx - 120, logoY - 16, cx + 120, logoY + 16);
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(0.45, '#d2e8ff');
+      gradient.addColorStop(1, '#8fb1ff');
+      ctx.fillStyle = gradient;
+      ctx.font = `48px "Noto Sans JP", "Hiragino Kaku Gothic Pro", "MS Gothic", "Meiryo", sans-serif`;
+      ctx.shadowColor = 'rgba(255,255,255,0.6)';
+      ctx.shadowBlur = 16;
+      const logoAlpha = Math.min(1, (elapsed - 30) / 2);
+      ctx.globalAlpha = logoAlpha;
+      ctx.fillText('railTrail', cx, logoY);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 0.9;
+      ctx.strokeText('railTrail', cx, logoY);
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    if (elapsed >= BETA_OPENING_DURATION) {
+      finishOpening('complete');
+      return;
+    }
+    openingState.animationId = requestAnimationFrame(openingState.renderFn || renderBetaOpeningFrame);
   }
 
   async function finishOpening(reason) {
@@ -632,6 +894,8 @@
     openingState.onComplete = null;
     openingState.resolve = null;
     openingState.skippable = true;
+    openingState.variant = 'classic';
+    openingState.renderFn = null;
     openingState.completing = false;
     if (typeof resolver === 'function') resolver();
     if (typeof onComplete === 'function') onComplete();
@@ -639,7 +903,7 @@
 
   function playOpening(options = {}) {
     if (openingState.playing) return Promise.resolve();
-    const { mode = 'gallery', skippable = true, onComplete } = options;
+    const { mode = 'gallery', skippable = true, variant = 'classic', onComplete } = options;
     const { overlay, canvas } = createOpeningOverlay();
     openingState.playing = true;
     openingState.overlay = overlay;
@@ -647,6 +911,8 @@
     openingState.ctx = canvas.getContext('2d');
     openingState.skippable = Boolean(skippable);
     openingState.mode = mode;
+    openingState.variant = variant === 'beta' ? 'beta' : 'classic';
+    openingState.renderFn = openingState.variant === 'beta' ? renderBetaOpeningFrame : renderClassicOpeningFrame;
     openingState.onComplete = onComplete;
     openingState.startTime = 0;
     openingState.resolve = null;
@@ -659,7 +925,7 @@
     };
     window.addEventListener('keydown', openingState.keyListener, true);
     window.addEventListener('pointerdown', openingState.pointerListener, true);
-    openingState.animationId = requestAnimationFrame(renderOpeningFrame);
+    openingState.animationId = requestAnimationFrame(openingState.renderFn);
     startOpeningAudio().catch(() => {});
     return new Promise(resolve => {
       openingState.resolve = resolve;
@@ -1973,18 +2239,25 @@
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
     container.style.gap = '10px';
+    const launchGalleryOpening = (variant = 'classic') => {
+      closeStoryOverlay(overlayId);
+      playOpening({
+        mode: 'gallery',
+        variant,
+        skippable: true,
+        onComplete: () => setTimeout(openGalleryOverlay, 30),
+      });
+    };
     const items = [
       {
-        title: 'OPアニメーション',
-        description: '世界への遷移演出をあらためて見る',
-        action: () => {
-          closeStoryOverlay(overlayId);
-          playOpening({
-            mode: 'gallery',
-            skippable: true,
-            onComplete: () => setTimeout(openGalleryOverlay, 30),
-          });
-        },
+        title: 'OPアニメーション（beta-2.0）',
+        description: '新しい地図アニメと異世界感を楽しむ',
+        action: () => launchGalleryOpening('beta'),
+      },
+      {
+        title: '古いOPアニメーション',
+        description: '従来のバージョンと演出をもう一度',
+        action: () => launchGalleryOpening('classic'),
       },
       {
         title: '王命新聞（過去ログ）',
@@ -2779,6 +3052,47 @@
     };
   }
 
+  function getDefaultStoryChapterId() {
+    return DEFAULT_STORY_CHAPTER_ID;
+  }
+
+  function getChapterDefinition(chapterId) {
+    const id = chapterId || getDefaultStoryChapterId();
+    return STORY_CHAPTERS[id] || STORY_CHAPTERS[getDefaultStoryChapterId()] || null;
+  }
+
+  function createChapterProgressState() {
+    const defaultChapter = getChapterDefinition(getDefaultStoryChapterId());
+    return {
+      currentChapterId: defaultChapter ? defaultChapter.chapterId : null,
+      chapterFlags: {},
+      chapterMetrics: { uncertainty: 0 },
+    };
+  }
+
+  function ensureChapterProgress(state) {
+    if (!state) return null;
+    if (!state.chapterProgress) {
+      state.chapterProgress = createChapterProgressState();
+    }
+    if (!state.chapterProgress.chapterMetrics) {
+      state.chapterProgress.chapterMetrics = { uncertainty: 0 };
+    }
+    return state.chapterProgress;
+  }
+
+  function ensureChapterFlags(state, chapterId) {
+    const progress = ensureChapterProgress(state);
+    if (!progress) return null;
+    const id = chapterId || progress.currentChapterId;
+    if (!id) return null;
+    if (!progress.chapterFlags[id]) {
+      const def = getChapterDefinition(id);
+      progress.chapterFlags[id] = def && def.flags ? { ...def.flags } : {};
+    }
+    return progress.chapterFlags[id];
+  }
+
   const PRE_SUCCESSION_NEWS_EVENTS = [
     {
       turn: 4,
@@ -2843,7 +3157,62 @@
   const STORY_PROLOGUE_END_TURN = 1;
   const STORY_POLITICS_OFFSET = 2;
   const STORY_DIVISION_OFFSET = 6;
-
+  const STORY_CHAPTERS = {
+    chapter_01: {
+      chapterId: 'chapter_01',
+      title: '静かな継承',
+      introText: 'ハルバート王国は平穏である。しかし、落ち着いてはいない。王は健在で、皇子たちは異なる未来を窺っている。',
+      brokenEngagementText: 'エドワード皇子はルーン家との婚約解消を発表した。理由は「国家の事情を再考するため」だという。',
+      worldReactionTexts: [
+        'いま、王国の制度を支えているのは誰なのか？',
+        'あの婚約は、想像以上の重みを抱えていたのだろうか？',
+        '廷臣たちの足取りが静かになった。',
+      ],
+      thirdPrinceText: 'アルト皇子が非公式の面会を求めてきた。即位の話はせず、礼節ある会話だけを交わすという。',
+      thirdPrinceChoices: [
+        {
+          id: 'courteous',
+          label: '礼節ある応対',
+          summary: '冷静な受け答えで礼節を保ちつつ、穏やかな空気をつくる。',
+        },
+        {
+          id: 'distance',
+          label: '一定の距離を置く',
+          summary: '継承の香りがする話題は避け、距離を保った会話に徹する。',
+        },
+      ],
+      choiceText: '誰を王にするかは決められない。でも、王国をどう支えるかなら決めることができる。',
+      choiceOptions: [
+        {
+          id: 'stability',
+          label: '治安と制度を優先する',
+          summary: '軍と貴族への信頼を強め、秩序を堅固に守る方針。',
+        },
+        {
+          id: 'reform',
+          label: '改革と柔軟性を推進する',
+          summary: '民衆に寄り添い、宮廷の監視を緩めて変化を示す。',
+        },
+      ],
+      endText: '王国は今も立っている。人々は気づき始めた。誰が統治するかではなく、今それを支えている者が誰かを。',
+      startTurn: 1,
+      endTurn: 12,
+      flags: {
+        introShown: false,
+        engagementBroken: false,
+        worldReactionShown: false,
+        altoContacted: false,
+        chapterChoice: null,
+        altoChoice: null,
+        altoTrust: 0,
+        lastPassiveTurn: null,
+        endEventShown: false,
+        runeHouseStatus: 'intact',
+        princeFactionActive: false,
+      },
+    },
+  };
+  const DEFAULT_STORY_CHAPTER_ID = 'chapter_01';
   function createStoryScenarioState() {
     return {
       stage: STORY_SCENARIOS.ARRIVAL,
@@ -2867,6 +3236,7 @@
       romanceInteractions: {},
       romanceScandalTriggered: false,
       romanceMissedOpportunity: false,
+      chapterProgress: createChapterProgressState(),
     };
   }
 
@@ -2892,6 +3262,14 @@
       copy.romanceInteractions = { ...baseState.romanceInteractions, ...(data.romanceInteractions || {}) };
       copy.romanceScandalTriggered = typeof data.romanceScandalTriggered === 'boolean' ? data.romanceScandalTriggered : false;
       copy.romanceMissedOpportunity = typeof data.romanceMissedOpportunity === 'boolean' ? data.romanceMissedOpportunity : false;
+      copy.chapterProgress = {
+        ...baseState.chapterProgress,
+        ...(data.chapterProgress || {}),
+      };
+      copy.chapterProgress.chapterMetrics = {
+        ...baseState.chapterProgress.chapterMetrics,
+        ...((data.chapterProgress && data.chapterProgress.chapterMetrics) || {}),
+      };
       const validStages = new Set(Object.values(STORY_SCENARIOS));
       copy.stage = validStages.has(copy.stage) ? copy.stage : STORY_SCENARIOS.ARRIVAL;
       copy.romanceStages = { ...createStoryScenarioState().romanceStages, ...(data.romanceStages || {}) };
@@ -4057,6 +4435,7 @@
         const firstTime = !hasOpeningWatchedFlag();
         playOpening({
           mode: 'story',
+          variant: 'beta',
           skippable: !firstTime,
           onComplete: () => {
             startStoryMode();
@@ -6022,6 +6401,7 @@ function renderHorsecarLineList() {
         function maybeTriggerStorySequence() {
           if (!isStoryMode) return;
           const state = ensureStoryScenarioState();
+          if (maybeTriggerStoryChapterEvents(state)) return;
           if (maybeTriggerStoryFailure(state)) return;
           if (!state.arrivalAnnounced) {
             showStoryArrivalOverlay(state);
@@ -6070,6 +6450,356 @@ function renderHorsecarLineList() {
           }
         }
 
+
+        function maybeTriggerStoryChapterEvents(state) {
+          if (!state) return false;
+          const progress = ensureChapterProgress(state);
+          if (!progress || !progress.currentChapterId) return false;
+          const chapter = getChapterDefinition(progress.currentChapterId);
+          if (!chapter) return false;
+          const flags = ensureChapterFlags(state, chapter.chapterId);
+          if (!flags) return false;
+          applyChapterPassiveEffects(state, chapter, flags, progress);
+          const startTurn = chapter.startTurn || 1;
+          const endTurn = chapter.endTurn || (startTurn + 11);
+          if (currentTurn === startTurn && !flags.introShown) {
+            showChapterIntroOverlay(state, chapter, flags, progress);
+            return true;
+          }
+          if (currentTurn === startTurn + 2 && !flags.engagementBroken) {
+            showChapterEngagementOverlay(state, chapter, flags, progress);
+            return true;
+          }
+          if (currentTurn === startTurn + 3 && flags.engagementBroken && !flags.worldReactionShown) {
+            showChapterWorldReactionOverlay(state, chapter, flags, progress);
+            return true;
+          }
+          if (
+            currentTurn >= startTurn + 4 &&
+            currentTurn <= startTurn + 5 &&
+            flags.engagementBroken &&
+            !flags.altoContacted
+          ) {
+            showChapterThirdPrinceOverlay(state, chapter, flags, progress);
+            return true;
+          }
+          if (currentTurn === startTurn + 5 && !flags.chapterChoice) {
+            showChapterChoiceOverlay(state, chapter, flags, progress);
+            return true;
+          }
+          if (currentTurn === endTurn && !flags.endEventShown) {
+            showChapterEndOverlay(state, chapter, flags, progress);
+            return true;
+          }
+          return false;
+        }
+
+        function showChapterIntroOverlay(state, chapter, flags, progress) {
+          if (!chapter || !flags) return false;
+          const overlayId = `chapter-intro-${chapter.chapterId}`;
+          if (overlayStack.find(entry => entry.id === overlayId)) return false;
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '10px';
+          const paragraph = document.createElement('p');
+          paragraph.textContent = chapter.introText || '';
+          paragraph.style.fontSize = '13px';
+          container.appendChild(paragraph);
+          timeControl.speed = 0;
+          updateControlButtons();
+          const overlay = showStoryOverlay({
+            id: overlayId,
+            title: chapter.title || '物語の章',
+            body: container,
+            modal: true,
+            buttons: [{ label: '続ける', action: () => closeStoryOverlay(overlayId) }],
+            animate: true,
+          });
+          flags.introShown = true;
+          flags.princeFactionActive = true;
+          recordStoryAction('story', 'chapter1_intro', { storyLabel: chapter.introText });
+          return !!overlay;
+        }
+
+        function showChapterEngagementOverlay(state, chapter, flags, progress) {
+          if (!chapter || !flags) return false;
+          const overlayId = `chapter-engagement-${chapter.chapterId}`;
+          if (overlayStack.find(entry => entry.id === overlayId)) return false;
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '10px';
+          const paragraph = document.createElement('p');
+          paragraph.textContent = chapter.brokenEngagementText || '';
+          paragraph.style.fontSize = '13px';
+          container.appendChild(paragraph);
+          timeControl.speed = 0;
+          updateControlButtons();
+          let applied = false;
+          const applyEffects = () => {
+            if (applied) return;
+            applied = true;
+            adjustNationStability(-2);
+            adjustPlayerSupport('nobility', -6);
+            if (progress && progress.chapterMetrics) {
+              progress.chapterMetrics.uncertainty = (progress.chapterMetrics.uncertainty || 0) + 2;
+            }
+            flags.runeHouseStatus = 'floating';
+            markWorldDirty();
+            recordStoryAction('story', 'chapter1_engagement', { storyLabel: chapter.brokenEngagementText });
+          };
+          applyEffects();
+          flags.engagementBroken = true;
+          showStoryOverlay({
+            id: overlayId,
+            title: '婚約解消',
+            body: container,
+            modal: true,
+            buttons: [{
+              label: '理解した',
+              action: () => {
+                closeStoryOverlay(overlayId);
+              },
+            }],
+            animate: true,
+          });
+          return true;
+        }
+
+        function showChapterWorldReactionOverlay(state, chapter, flags, progress) {
+          if (!chapter || !flags) return false;
+          const overlayId = `chapter-world-${chapter.chapterId}`;
+          if (overlayStack.find(entry => entry.id === overlayId)) return false;
+          const textPool = Array.isArray(chapter.worldReactionTexts) ? chapter.worldReactionTexts : [];
+          const message = textPool[Math.floor(Math.random() * textPool.length)] || chapter.worldReactionTexts[0] || '';
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '10px';
+          const paragraph = document.createElement('p');
+          paragraph.textContent = message;
+          paragraph.style.fontSize = '13px';
+          container.appendChild(paragraph);
+          timeControl.speed = 0;
+          updateControlButtons();
+          showStoryOverlay({
+            id: overlayId,
+            title: '宮廷の反応',
+            body: container,
+            modal: true,
+            buttons: [{ label: '了解', action: () => closeStoryOverlay(overlayId) }],
+            animate: true,
+          });
+          flags.worldReactionShown = true;
+          if (progress && progress.chapterMetrics) {
+            progress.chapterMetrics.uncertainty = (progress.chapterMetrics.uncertainty || 0) + 1;
+          }
+          recordStoryAction('story', 'chapter1_reaction', { storyLabel: message });
+          return true;
+        }
+
+        function showChapterThirdPrinceOverlay(state, chapter, flags, progress) {
+          if (!chapter || !flags) return false;
+          const overlayId = `chapter-thirdprince-${chapter.chapterId}`;
+          if (overlayStack.find(entry => entry.id === overlayId)) return false;
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '10px';
+          const paragraph = document.createElement('p');
+          paragraph.textContent = chapter.thirdPrinceText || '';
+          paragraph.style.fontSize = '13px';
+          container.appendChild(paragraph);
+          const list = document.createElement('div');
+          list.style.display = 'flex';
+          list.style.flexDirection = 'column';
+          list.style.gap = '6px';
+          (chapter.thirdPrinceChoices || []).forEach(choice => {
+            const entry = document.createElement('div');
+            entry.style.display = 'flex';
+            entry.style.flexDirection = 'column';
+            const label = document.createElement('strong');
+            label.textContent = choice.label;
+            const summary = document.createElement('span');
+            summary.textContent = choice.summary || '';
+            summary.style.fontSize = '12px';
+            summary.style.opacity = '0.7';
+            entry.appendChild(label);
+            entry.appendChild(summary);
+            list.appendChild(entry);
+          });
+          container.appendChild(list);
+          timeControl.speed = 0;
+          updateControlButtons();
+          const applyChoice = (choice) => {
+            if (!choice || flags.altoContacted) return;
+            flags.altoContacted = true;
+            flags.altoChoice = choice.id;
+            if (choice.id === 'courteous') {
+              flags.altoTrust = (flags.altoTrust || 0) + 6;
+              adjustPlayerSupport('nobility', 2);
+              adjustPlayerSupport('citizens', 1);
+              if (progress && progress.chapterMetrics) {
+                progress.chapterMetrics.uncertainty = Math.max(0, (progress.chapterMetrics.uncertainty || 0) - 1);
+              }
+            } else {
+              flags.altoTrust = (flags.altoTrust || 0);
+              adjustNationStability(1);
+            }
+            recordStoryAction('story', `chapter1_alto_${choice.id}`, { storyLabel: choice.summary || choice.id });
+            markWorldDirty();
+            closeStoryOverlay(overlayId);
+          };
+          const buttons = (chapter.thirdPrinceChoices || []).map(choice => ({
+            label: choice.label,
+            action: () => applyChoice(choice),
+          }));
+          if (!buttons.length) buttons.push({ label: '了解', action: () => closeStoryOverlay(overlayId) });
+          showStoryOverlay({
+            id: overlayId,
+            title: '第一接触',
+            body: container,
+            modal: true,
+            buttons,
+            animate: true,
+          });
+          return true;
+        }
+
+        function showChapterChoiceOverlay(state, chapter, flags, progress) {
+          if (!chapter || !flags) return false;
+          const overlayId = `chapter-choice-${chapter.chapterId}`;
+          if (overlayStack.find(entry => entry.id === overlayId)) return false;
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '10px';
+          const paragraph = document.createElement('p');
+          paragraph.textContent = chapter.choiceText || '';
+          paragraph.style.fontSize = '13px';
+          container.appendChild(paragraph);
+          const optionsWrapper = document.createElement('div');
+          optionsWrapper.style.display = 'flex';
+          optionsWrapper.style.flexDirection = 'column';
+          optionsWrapper.style.gap = '8px';
+          const applyChoice = (option) => {
+            if (!option || flags.chapterChoice) return;
+            flags.chapterChoice = option.id;
+            if (option.id === 'stability') {
+              adjustNationStability(2);
+              adjustPlayerSupport('nobility', 3);
+              adjustPlayerSupport('citizens', -1);
+              if (progress && progress.chapterMetrics) {
+                progress.chapterMetrics.uncertainty = Math.max(0, (progress.chapterMetrics.uncertainty || 0) - 1);
+              }
+            } else {
+              adjustNationStability(-2);
+              adjustPlayerSupport('citizens', 3);
+              adjustPlayerSupport('nobility', -2);
+              if (progress && progress.chapterMetrics) {
+                progress.chapterMetrics.uncertainty = (progress.chapterMetrics.uncertainty || 0) + 1;
+              }
+            }
+            recordStoryAction('player', `chapter1_choice_${option.id}`, { storyLabel: option.summary });
+            markWorldDirty();
+            closeStoryOverlay(overlayId);
+          };
+          (chapter.choiceOptions || []).forEach(option => {
+            const block = document.createElement('div');
+            block.style.display = 'flex';
+            block.style.flexDirection = 'column';
+            block.style.gap = '4px';
+            block.style.borderTop = '1px solid rgba(0,0,0,0.1)';
+            block.style.paddingTop = '6px';
+            const title = document.createElement('strong');
+            title.textContent = option.label;
+            const summary = document.createElement('span');
+            summary.textContent = option.summary || '';
+            summary.style.fontSize = '12px';
+            summary.style.opacity = '0.7';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn';
+            button.textContent = 'これを選ぶ';
+            button.addEventListener('click', () => applyChoice(option));
+            block.appendChild(title);
+            block.appendChild(summary);
+            block.appendChild(button);
+            optionsWrapper.appendChild(block);
+          });
+          container.appendChild(optionsWrapper);
+          timeControl.speed = 0;
+          updateControlButtons();
+          showStoryOverlay({
+            id: overlayId,
+            title: '王国の方針',
+            body: container,
+            modal: true,
+            buttons: [],
+            animate: true,
+          });
+          return true;
+        }
+
+        function showChapterEndOverlay(state, chapter, flags, progress) {
+          if (!chapter || !flags) return false;
+          const overlayId = `chapter-end-${chapter.chapterId}`;
+          if (overlayStack.find(entry => entry.id === overlayId)) return false;
+          const container = document.createElement('div');
+          container.style.display = 'flex';
+          container.style.flexDirection = 'column';
+          container.style.gap = '10px';
+          const paragraph = document.createElement('p');
+          paragraph.textContent = chapter.endText || '';
+          paragraph.style.fontSize = '13px';
+          container.appendChild(paragraph);
+          timeControl.speed = 0;
+          updateControlButtons();
+          showStoryOverlay({
+            id: overlayId,
+            title: '章の終わり',
+            body: container,
+            modal: true,
+            buttons: [{ label: '次へ', action: () => closeStoryOverlay(overlayId) }],
+            animate: true,
+          });
+          flags.endEventShown = true;
+          flags.chapterCompletedAt = currentTurn;
+          if (progress) {
+            progress.currentChapterId = null;
+          }
+          recordStoryAction('story', 'chapter1_end', { storyLabel: chapter.endText });
+          return true;
+        }
+
+        function applyChapterPassiveEffects(state, chapter, flags, progress) {
+          if (!state || !chapter || !flags || !flags.chapterChoice) return;
+          const startTurn = chapter.startTurn || 1;
+          const endTurn = chapter.endTurn || (startTurn + 11);
+          const passiveStart = startTurn + 6;
+          const passiveEnd = endTurn - 1;
+          if (currentTurn < passiveStart || currentTurn > passiveEnd) return;
+          if (flags.lastPassiveTurn === currentTurn) return;
+          const choice = flags.chapterChoice;
+          const delta = choice === 'stability' ? 1 : -1;
+          adjustNationStability(delta);
+          if (choice === 'stability') {
+            adjustPlayerSupport('nobility', 1);
+            adjustPlayerSupport('citizens', -1);
+          } else {
+            adjustPlayerSupport('citizens', 1);
+            adjustPlayerSupport('nobility', -1);
+          }
+          if (progress && progress.chapterMetrics) {
+            const currentUncertainty = progress.chapterMetrics.uncertainty || 0;
+            const change = choice === 'stability' ? -1 : 1;
+            progress.chapterMetrics.uncertainty = Math.max(0, currentUncertainty + change);
+          }
+          flags.lastPassiveTurn = currentTurn;
+          markWorldDirty();
+          recordStoryAction('system', `chapter1_passive_${choice}`, { storyLabel: `Passive turn ${currentTurn}` });
+        }
         function applyWorldEvent(event) {
           if (!event) return;
           timeControl.speed = 0;
@@ -6552,12 +7282,13 @@ function renderHorsecarLineList() {
           railManualBtn.style.display = infrastructureEnabled ? 'inline-flex' : 'none';
           railManualBtn.disabled = !infrastructureEnabled;
         }
-        if (populationPlanBtn) {
-          const enabled = roles.player === 'king';
-          populationPlanBtn.style.display = enabled ? 'inline-flex' : 'none';
-          populationPlanBtn.disabled = !enabled;
-        }
+    if (populationPlanBtn) {
+      const enabled = roles.player === 'king';
+      populationPlanBtn.style.display = enabled ? 'inline-flex' : 'none';
+      populationPlanBtn.disabled = !enabled;
+    }
     refreshPanelActionStates();
+    refreshMobileSystemActionButtons();
   }
 
   function handleTouchAction(action) {
@@ -6808,6 +7539,19 @@ function renderHorsecarLineList() {
     updateMobileContextHeading();
   }
 
+  const mobileSystemActionButtons = new Map();
+
+  function refreshMobileSystemActionButtons() {
+    mobileSystemActionButtons.forEach((btn, key) => {
+      if (!btn) return;
+      let disabled = false;
+      if (key === 'population-plan' || key === 'abdicate') {
+        disabled = roles.player !== 'king';
+      }
+      btn.disabled = disabled;
+    });
+  }
+
   function renderMobileContextActions() {
     if (!mobileContextActionsEl) return;
     mobileContextActionsEl.innerHTML = '';
@@ -6833,6 +7577,21 @@ function renderHorsecarLineList() {
     if (mobileSystemActionsEl) {
       mobileSystemActionsEl.style.display = mobileActiveMode === 'system' ? 'flex' : 'none';
     }
+  }
+
+  function ensureExtraMobileSystemActions() {
+    if (!mobileSystemActionsEl) return;
+    MOBILE_SYSTEM_EXTRA_ACTIONS.forEach(entry => {
+      if (!entry || !entry.key) return;
+      if (mobileSystemActionsEl.querySelector(`[data-mobile-system="${entry.key}"]`)) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.mobileSystem = entry.key;
+      btn.classList.add('mobile-system-btn');
+      btn.textContent = entry.label || entry.key;
+      if (entry.className) btn.className = entry.className;
+      mobileSystemActionsEl.appendChild(btn);
+    });
   }
 
   function updateMobileContextHeading() {
@@ -7085,9 +7844,16 @@ function renderHorsecarLineList() {
     }
     mobileSystemActionsEl = document.getElementById('mobile-system-actions');
     if (mobileSystemActionsEl) {
+      ensureExtraMobileSystemActions();
+      mobileSystemActionButtons.clear();
       mobileSystemActionsEl.querySelectorAll('[data-mobile-system]').forEach(btn => {
         btn.addEventListener('click', () => handleTouchAction(btn.dataset.mobileSystem));
+        const key = btn.dataset.mobileSystem;
+        if (key) {
+          mobileSystemActionButtons.set(key, btn);
+        }
       });
+      refreshMobileSystemActionButtons();
     }
     if (mobileSpeedIndicatorEl) {
       mobileSpeedIndicatorEl.addEventListener('click', () => {
@@ -7958,7 +8724,11 @@ function renderHorsecarLineList() {
     if (titleContainer) titleContainer.style.display = appState === 'title' ? 'flex' : 'none';
     if (titleStatusEl && appState === 'map') titleStatusEl.textContent = '';
     updateHudStats();
-    maybeShowMonthlyNewspaper();
+    if (skipMonthlyNewsAfterLoad) {
+      skipMonthlyNewsAfterLoad = false;
+    } else {
+      maybeShowMonthlyNewspaper();
+    }
     updateBgmControls();
     updateBGMState();
     if (document && document.body) {
@@ -8666,6 +9436,7 @@ function renderHorsecarLineList() {
       }
       restoreStoryScenarioState(data.story ? data.story.storyScenario : null);
       restoreStoryHistory(data.story);
+      skipMonthlyNewsAfterLoad = true;
     globalFunds = (typeof data.funds === 'number') ? data.funds : 3000;
     cityDistanceField = computeCityDistanceField();
     worldReady = true;
