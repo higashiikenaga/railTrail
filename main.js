@@ -19,7 +19,7 @@
   const galleryBtn = document.getElementById('btn-gallery');
   const bgmToggleBtn = document.getElementById('btn-bgm-toggle');
   const bgmAudio = document.getElementById('title-bgm');
-  const storyOverlayRoot = document.getElementById('story-overlay-root');
+  let storyOverlayRoot = document.getElementById('story-overlay-root');
   const confirmOverlay = document.getElementById('confirm-overlay');
   const overlaySaveBtn = document.getElementById('btn-overlay-save');
   const overlayDiscardBtn = document.getElementById('btn-overlay-discard');
@@ -131,6 +131,17 @@
   let mobileTickerEl = null;
   const mobileOverlayHistory = [];
   const mobileObservers = [];
+
+  function ensureStoryOverlayRoot() {
+    if (storyOverlayRoot && document.body?.contains(storyOverlayRoot)) return storyOverlayRoot;
+    storyOverlayRoot = document.getElementById('story-overlay-root') || null;
+    if (!storyOverlayRoot && document.body) {
+      storyOverlayRoot = document.createElement('div');
+      storyOverlayRoot.id = 'story-overlay-root';
+      document.body.appendChild(storyOverlayRoot);
+    }
+    return storyOverlayRoot;
+  }
 
   function requestCapitalSelection() {
     pendingCapitalSelection = true;
@@ -1982,7 +1993,8 @@
       }
 
       function openRoyalNewsOverlay(entries, turn, monthLabel, topAlign = false) {
-        if (!entries.length || !storyOverlayRoot) return;
+        const root = ensureStoryOverlayRoot();
+        if (!entries.length || !root) return;
         if (lastRoyalNewsOverlayId) {
           closeStoryOverlay(lastRoyalNewsOverlayId);
           lastRoyalNewsOverlayId = null;
@@ -2032,7 +2044,8 @@
         playSystemSound('news');
       }
       function openNationOverviewOverlay() {
-        if (!storyOverlayRoot) return;
+        const root = ensureStoryOverlayRoot();
+        if (!root) return;
         const overlayId = 'nation-overview';
         if (overlayStack.find(o => o.id === overlayId)) return;
         const metrics = calculateNationOverviewMetrics();
@@ -2139,7 +2152,8 @@
       }
 
       function openStoryTimelineOverlay() {
-        if (!storyOverlayRoot) return;
+        const root = ensureStoryOverlayRoot();
+        if (!root) return;
         const overlayId = 'story-timeline';
         if (overlayStack.find(o => o.id === overlayId)) return;
         const container = document.createElement('div');
@@ -2231,8 +2245,9 @@
       });
     }
 
-  function openGalleryOverlay() {
-    if (!storyOverlayRoot) return;
+    function openGalleryOverlay() {
+      const root = ensureStoryOverlayRoot();
+      if (!root) return;
     const overlayId = 'gallery-overlay';
     if (overlayStack.find(o => o.id === overlayId)) return;
     const container = document.createElement('div');
@@ -2307,7 +2322,8 @@
   }
 
   function openGalleryNewsArchive() {
-    if (!storyOverlayRoot) return;
+    const root = ensureStoryOverlayRoot();
+    if (!root) return;
     const overlayId = 'gallery-news-archive';
     if (overlayStack.find(o => o.id === overlayId)) return;
     const container = document.createElement('div');
@@ -3301,7 +3317,8 @@
   }
 
   function showStoryNarrativeOverlay(opts) {
-    if (!storyOverlayRoot || !opts) return false;
+    const root = ensureStoryOverlayRoot();
+    if (!root || !opts) return false;
     const { id, title, paragraphs, summary, actionId, buttonLabel } = opts;
     if (!id || overlayStack.find(o => o.id === id)) return false;
     const container = createStoryNarrativeContainer(paragraphs);
@@ -3465,7 +3482,8 @@
   }
 
   function showRomanceInteractionOverlay(state, interaction) {
-    if (!storyOverlayRoot || !interaction) return false;
+    const root = ensureStoryOverlayRoot();
+    if (!root || !interaction) return false;
     const overlayId = `story-romance-interaction-${interaction.id}`;
     if (overlayStack.find(o => o.id === overlayId)) return true;
     const candidate = getRomanceCandidate(interaction.candidateId);
@@ -3566,7 +3584,8 @@
   }
 
   function showRomanceScandalOverlay(state, candidate, data) {
-    if (!storyOverlayRoot || !candidate || !state || !data) return false;
+    const root = ensureStoryOverlayRoot();
+    if (!root || !candidate || !state || !data) return false;
     const overlayId = `story-romance-scandal-${candidate.id}`;
     if (overlayStack.find(o => o.id === overlayId)) return true;
     const container = document.createElement('div');
@@ -4132,7 +4151,8 @@
   }
 
   function showStoryOverlay(options) {
-    if (!storyOverlayRoot) return null;
+    const root = ensureStoryOverlayRoot();
+    if (!root) return null;
     const {
       id,
       title,
@@ -4273,7 +4293,7 @@
     win.appendChild(bodyEl);
     win.appendChild(buttonRow);
 
-    storyOverlayRoot.appendChild(win);
+    root.appendChild(win);
     const overlay = { id:overlayId, title, modal, el:win };
     overlayStack.push(overlay);
     const caption = typeof mobileTitle === 'string' ? mobileTitle : (typeof title === 'string' ? title : '');
@@ -8036,7 +8056,8 @@ function renderHorsecarLineList() {
   }
 
   function openCityRenameOverlay() {
-    if (appState !== 'map' || !worldReady || !storyOverlayRoot) return;
+    const root = ensureStoryOverlayRoot();
+    if (appState !== 'map' || !worldReady || !root) return;
     const overlayId = 'city-rename-overlay';
     if (overlayStack.find(o => o.id === overlayId)) return;
     const availableCities = cities.filter(city => city && typeof city.id !== 'undefined');
@@ -8115,7 +8136,8 @@ function renderHorsecarLineList() {
   }
 
   function openMilitaryCompositionOverlay() {
-    if (appState !== 'map' || !worldReady || !storyOverlayRoot) return;
+    const root = ensureStoryOverlayRoot();
+    if (appState !== 'map' || !worldReady || !root) return;
     const overlayId = 'military-organization';
     if (overlayStack.find(o => o.id === overlayId)) return;
     const container = document.createElement('div');
@@ -8335,7 +8357,8 @@ function renderHorsecarLineList() {
   }
 
   function openPopulationPlanOverlay() {
-    if (!storyOverlayRoot || !worldReady || appState !== 'map') return;
+    const root = ensureStoryOverlayRoot();
+    if (!root || !worldReady || appState !== 'map') return;
     if (roles.player !== 'king') {
       if (tileInfoEl) {
         tileInfoEl.textContent = '王でないと人口増加計画を実行できません。';
@@ -8561,7 +8584,8 @@ function renderHorsecarLineList() {
   }
 
   function openAbdicationOverlay() {
-    if (appState !== 'map' || !worldReady || !storyOverlayRoot) return;
+    const root = ensureStoryOverlayRoot();
+    if (appState !== 'map' || !worldReady || !root) return;
     const overlayId = 'abdication-overlay';
     if (overlayStack.find(o => o.id === overlayId)) return;
     const container = document.createElement('div');
@@ -10108,7 +10132,8 @@ let railMaintenanceLastTurn = 0;
   }
 
   function promptChancellorSelection(originOverlayId) {
-    if (!storyOverlayRoot) return;
+    const root = ensureStoryOverlayRoot();
+    if (!root) return;
     const overlayId = 'chancellor-selection';
     if (overlayStack.find(o => o.id === overlayId)) return;
     const container = document.createElement('div');
