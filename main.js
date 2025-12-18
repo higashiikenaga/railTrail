@@ -17,6 +17,8 @@
   const loadWorldBtn = document.getElementById('btn-load-world');
   const storyModeBtn = document.getElementById('btn-story-mode');
   const galleryBtn = document.getElementById('btn-gallery');
+  const titleStoryCardBtn = document.getElementById('title-story-card-btn');
+  const titleGalleryCardBtn = document.getElementById('title-gallery-card-btn');
   const bgmToggleBtn = document.getElementById('btn-bgm-toggle');
   const bgmAudio = document.getElementById('title-bgm');
   let storyOverlayRoot = document.getElementById('story-overlay-root');
@@ -55,13 +57,6 @@
     story: 'ストーリー',
     system: 'システム',
   };
-  const MOBILE_SYSTEM_EXTRA_ACTIONS = [
-    { key: 'manage-military', label: '軍備編成' },
-    { key: 'population-plan', label: '人口増加計画' },
-    { key: 'rename-city', label: '都市改名' },
-    { key: 'abdicate', label: '王位譲渡' },
-  ];
-
   const MOBILE_MODE_ACTIONS = {
     world: [
       { actionId: 'toggle-2d', label: '2D表示' },
@@ -177,19 +172,35 @@
     target: null,
   };
   const OPENING_WATCHED_KEY = 'openingWatched';
-  const OPENING_AUDIO_URL = './music/bgm/game_op.wav';
+  const OPENING_AUDIO_URL = './music/bgm/game_op2.wav';
   const OPENING_AUDIO_DURATION = 38;
   const PRE_OPEN_BLACK = 1;
   const POST_OPEN_BLACK = 1;
   const OPENING_DURATION = PRE_OPEN_BLACK + OPENING_AUDIO_DURATION + POST_OPEN_BLACK;
-  const BETA_OPENING_DURATION = 40;
-  const BETA_RING_LAYERS = 6;
-  const BETA_HALO_POINTS = 14;
-  const BETA_CONVERGING_COUNT = 18;
-  const BETA_SYMBOL_CONFIG = [
-    { radiusFactor: 0.45, dash: 8, gap: 6 },
-    { radiusFactor: 0.58, dash: 4, gap: 6 },
-    { radiusFactor: 0.7, dash: 2, gap: 10 },
+  const BETA_OPENING_DURATION = 90;
+  const BETA_OPENING_BPM = 160;
+  const BETA_STAR_POINTS = [
+    { angle: 0.1, radius: 0.38 },
+    { angle: 0.5, radius: 0.22 },
+    { angle: 1.2, radius: 0.6 },
+    { angle: 1.7, radius: 0.33 },
+    { angle: 2.2, radius: 0.48 },
+    { angle: 2.7, radius: 0.15 },
+    { angle: 3.1, radius: 0.55 },
+    { angle: 3.6, radius: 0.42 },
+    { angle: 4.1, radius: 0.72 },
+    { angle: 4.7, radius: 0.2 },
+    { angle: 5.2, radius: 0.65 },
+    { angle: 5.8, radius: 0.35 },
+    { angle: 0.9, radius: 0.7 },
+    { angle: 1.4, radius: 0.9 },
+  ];
+  const BETA_STAGES = [
+    { id: 'stars', start: 0, end: 18 },
+    { id: 'map', start: 18, end: 40 },
+    { id: 'wheel', start: 40, end: 60 },
+    { id: 'roundabout', start: 60, end: 75 },
+    { id: 'sigil', start: 75, end: BETA_OPENING_DURATION },
   ];
   let openingAudioDataPromise = fetch(OPENING_AUDIO_URL)
     .then(res => res.ok ? res.arrayBuffer() : Promise.reject(new Error('audio fetch failed')))
@@ -215,6 +226,10 @@
     audioSource: null,
     audioGain: null,
     completing: false,
+    viewW: 0,
+    viewH: 0,
+    dpr: 1,
+    resizeListener: null,
   };
 
   
@@ -388,7 +403,8 @@
       source.connect(gain).connect(openingAudioCtx.destination);
       const startAt = openingAudioCtx.currentTime + PRE_OPEN_BLACK;
       source.start(startAt);
-      source.stop(startAt + OPENING_AUDIO_DURATION + 0.2);
+      const duration = openingState.variant === 'beta' ? BETA_OPENING_DURATION : OPENING_AUDIO_DURATION;
+      source.stop(startAt + duration + 0.2);
       openingState.audioSource = source;
       openingState.audioGain = gain;
       return source;
@@ -425,11 +441,35 @@
     const overlay = document.createElement('div');
     overlay.id = 'opening-overlay';
     const canvas = document.createElement('canvas');
-    canvas.width = 320;
-    canvas.height = 200;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    const w = Math.max(320, Math.floor(window.innerWidth || 320));
+    const h = Math.max(200, Math.floor(window.innerHeight || 200));
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
     overlay.appendChild(canvas);
     document.body.appendChild(overlay);
     return { overlay, canvas };
+  }
+
+  function syncOpeningCanvasResolution() {
+    if (!openingState.canvas || !openingState.ctx) return;
+    const canvas = openingState.canvas;
+    const ctx = openingState.ctx;
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    const w = Math.max(320, Math.floor(window.innerWidth || 320));
+    const h = Math.max(200, Math.floor(window.innerHeight || 200));
+    const targetW = w * dpr;
+    const targetH = h * dpr;
+    if (canvas.width !== targetW) canvas.width = targetW;
+    if (canvas.height !== targetH) canvas.height = targetH;
+    openingState.viewW = w;
+    openingState.viewH = h;
+    openingState.dpr = dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
   }
 
   function drawBloomText(ctx, text, x, y, options = {}) {
@@ -454,189 +494,621 @@
     ctx.restore();
   }
 
-  function getBetaStage(elapsed) {
-    const stage = Math.floor(elapsed / 10);
-    return Math.min(3, Math.max(0, stage));
+  const BETA_MAP_HIGHLIGHTS = [
+    { angle: 0.5, radius: 0.52, width: 0.18, height: 0.08, opacity: 0.7 },
+    { angle: 1.1, radius: 0.58, width: 0.14, height: 0.06, opacity: 0.65 },
+    { angle: 2.05, radius: 0.42, width: 0.2, height: 0.1, opacity: 0.75 },
+    { angle: 3.3, radius: 0.47, width: 0.17, height: 0.07, opacity: 0.6 },
+    { angle: 4.6, radius: 0.62, width: 0.16, height: 0.09, opacity: 0.7 },
+  ];
+  const BETA_UMBRELLA_ANGLES = [0.28, 0.95, 1.6, 2.35, 3.05, 3.7, 4.35, 5.05, 5.6];
+  const BETA_DECORATIVE_WORDS = [
+    '王国', '都市', '地方', '領地', '国境', '治安', '税制', '交易', '航路', '港湾',
+    '街道', '鉄道', '運河', '物流', '工房', '鉱山', '森林', '農地', '水源', '防衛',
+    '師団', '防衛団', '外交', '条約', '同盟', '評議会', '議会', '法令', '司法', '監察',
+    '内政', 'インフラ', '研究', '魔法', '教育', '信仰', '改革', '秩序', '安定', '継承',
+    '王命', '民意', '貴族', '庶民', '商会', '徴募', '治水', '要塞', '首都', '辺境',
+  ];
+  const BETA_LOGO_LETTERS = 'RAILTRAIL'.split('');
+
+  function betaBeat(elapsed, multiplier = 1) {
+    return (elapsed * (BETA_OPENING_BPM / 60)) * multiplier;
   }
 
-  function drawBetaRingGrid(ctx, cx, cy, baseRadius, elapsed) {
+  function smoothstep(edge0, edge1, x) {
+    const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  function drawBetaVignetteAndNoise(ctx, w, h, elapsed, intensity = 1) {
     ctx.save();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.2;
-    for (let layer = 0; layer < BETA_RING_LAYERS; layer++) {
-      const radius = baseRadius * (0.6 + layer * 0.08 + Math.sin(elapsed * 0.2 + layer) * 0.02);
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.globalAlpha = 0.25 + layer * 0.05;
-      ctx.stroke();
-    }
+    const vignette = ctx.createRadialGradient(w * 0.5, h * 0.5, Math.min(w, h) * 0.12, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
+    vignette.addColorStop(0, 'rgba(2,3,10,0)');
+    vignette.addColorStop(0.55, 'rgba(2,3,10,0.08)');
+    vignette.addColorStop(1, `rgba(2,3,10,${0.7 + 0.12 * intensity})`);
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, w, h);
     ctx.restore();
-  }
 
-  function drawBetaMagicSigils(ctx, cx, cy, baseRadius, elapsed, intensity = 1) {
+    const noiseAlpha = 0.022 * intensity;
+    if (noiseAlpha <= 0) return;
     ctx.save();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    BETA_SYMBOL_CONFIG.forEach((config, idx) => {
-      const radius = baseRadius * config.radiusFactor;
-      ctx.beginPath();
-      for (let seg = 0; seg < 24; seg++) {
-        const start = (seg / 24) * Math.PI * 2 + elapsed * 0.1 * (idx + 1);
-        const end = start + (config.dash / 20);
-        ctx.arc(cx, cy, radius, start, end);
+    ctx.globalAlpha = noiseAlpha;
+    ctx.fillStyle = '#ffffff';
+    const step = 6;
+    const t = Math.floor(betaBeat(elapsed, 0.15) * 10);
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        const r = Math.abs(Math.sin((x * 12.9898 + y * 78.233 + t) * 0.017));
+        if (r < 0.93) continue;
+        ctx.fillRect(x, y, 1, 1);
       }
-      ctx.globalAlpha = Math.max(0.2, Math.min(1, 0.35 + idx * 0.15)) * intensity;
-      ctx.stroke();
-    });
-    ctx.restore();
-  }
-
-  function drawBetaCityHalo(ctx, cx, cy, baseRadius, elapsed) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < BETA_HALO_POINTS; i++) {
-      const angle = (i / BETA_HALO_POINTS) * Math.PI * 2 + elapsed * 0.15;
-      const radius = baseRadius * (0.3 + Math.sin(elapsed * 0.4 + i) * 0.05);
-      const px = cx + Math.cos(angle) * radius;
-      const py = cy + Math.sin(angle) * radius;
-      const size = 6 + Math.sin(elapsed + i) * 3;
-      ctx.beginPath();
-      ctx.rect(px - size / 2, py - size / 2, size, size);
-      ctx.fill();
     }
     ctx.restore();
   }
 
-  function drawBetaCityClusters(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+  function drawBetaOrnamentalFiligree(ctx, cx, cy, baseRadius, elapsed, intensity = 1) {
+    const beat = betaBeat(elapsed, 0.12);
     ctx.save();
-    const clusterCount = 12;
-    for (let i = 0; i < clusterCount; i++) {
-      const angle = (i / clusterCount) * Math.PI * 2 + stageProgress * Math.PI;
-      const distance = baseRadius * (0.45 + 0.12 * Math.sin(elapsed * 0.3 + i));
-      const height = 10 + stageProgress * 40 + Math.sin(elapsed * 0.5 + i) * 6;
-      const width = 6 + Math.cos(elapsed * 0.4 + i) * 2;
-      const px = cx + Math.cos(angle) * distance;
-      const py = cy + Math.sin(angle) * distance;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255,255,255,${0.16 + 0.24 * intensity})`;
+    ctx.lineWidth = 1;
+    ctx.shadowColor = 'rgba(255,255,255,0.22)';
+    ctx.shadowBlur = 10;
+    const loops = 10;
+    for (let i = 0; i < loops; i++) {
+      const ring = baseRadius * (0.78 + i * 0.05);
+      const sweep = Math.PI * (0.38 + 0.09 * Math.sin(beat + i));
+      const a0 = beat * 0.9 + i * 0.6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, ring, a0, a0 + sweep);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255,255,255,${0.12 + 0.3 * intensity})`;
+    ctx.lineWidth = 1;
+    const petals = 7;
+    for (let p = 0; p < petals; p++) {
+      const ang = (p / petals) * Math.PI * 2 + beat * 0.6;
+      const r0 = baseRadius * 0.22;
+      const r1 = baseRadius * 1.06;
+      const mid = baseRadius * (0.55 + 0.08 * Math.sin(beat + p));
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
+      ctx.quadraticCurveTo(
+        cx + Math.cos(ang + 0.45) * mid,
+        cy + Math.sin(ang + 0.45) * mid,
+        cx + Math.cos(ang) * r1,
+        cy + Math.sin(ang) * r1
+      );
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBetaDecorativeWords(ctx, cx, cy, baseRadius, elapsed, options = {}) {
+    const {
+      density = 22,
+      intensity = 1,
+      rotation = 0.06,
+      minRadius = 0.55,
+      maxRadius = 1.05,
+    } = options;
+    const t = betaBeat(elapsed, 0.25);
+    ctx.save();
+    ctx.font = '16px "Yu Mincho","Hiragino Mincho ProN","MS PMincho"';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.52)';
+    for (let i = 0; i < density; i++) {
+      const word = BETA_DECORATIVE_WORDS[i % BETA_DECORATIVE_WORDS.length];
+      const ring = (i % 6) / 5;
+      const radius = baseRadius * (minRadius + (maxRadius - minRadius) * ring);
+      const angle = (i / density) * Math.PI * 2 + elapsed * rotation + Math.sin(t + i) * 0.04;
+      const wobble = (Math.sin(betaBeat(elapsed, 0.7) + i * 0.9) * 0.02 + 0.02) * baseRadius;
+      const x = cx + Math.cos(angle) * (radius + wobble);
+      const y = cy + Math.sin(angle) * (radius + wobble);
       ctx.save();
-      ctx.translate(px, py);
+      ctx.translate(x, y);
       ctx.rotate(angle + Math.PI / 2);
-      ctx.fillStyle = `rgba(255,255,255,${0.15 + stageProgress * 0.45})`;
-      ctx.fillRect(-width / 2, -height, width, height);
+      const alpha = (0.12 + 0.55 * ring) * intensity * (0.7 + 0.3 * Math.sin(betaBeat(elapsed, 0.9) + i));
+      ctx.globalAlpha = clamp(alpha, 0, 0.75);
+      ctx.fillText(word, 0, 0);
       ctx.restore();
     }
     ctx.restore();
   }
 
-  function drawBetaMapContours(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
-    ctx.save();
-    const layerCount = 4;
-    for (let layer = 0; layer < layerCount; layer++) {
-      const radius = baseRadius * (0.38 + layer * 0.08);
-      const offset = elapsed * 0.18 + layer;
-      ctx.beginPath();
-      for (let seg = 0; seg <= 32; seg++) {
-        const angle = (seg / 32) * Math.PI * 2;
-        const radial = radius + Math.sin(angle * 3 + offset) * baseRadius * 0.02;
-        const px = cx + Math.cos(angle) * radial;
-        const py = cy + Math.sin(angle) * radial;
-        if (!seg) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+  function getBetaStageInfo(elapsed) {
+    for (const stage of BETA_STAGES) {
+      if (elapsed >= stage.start && elapsed < stage.end) {
+        return stage;
       }
-      ctx.closePath();
-      ctx.strokeStyle = `rgba(255,255,255,${0.12 + stageProgress * 0.3})`;
-      ctx.lineWidth = 1;
-      ctx.stroke();
     }
-    const branchCount = 8;
-    for (let i = 0; i < branchCount; i++) {
-      const angle = (i / branchCount) * Math.PI * 2 + elapsed * 0.25;
-      const inner = baseRadius * 0.2;
-      const outer = baseRadius * 1.05;
+    return BETA_STAGES[BETA_STAGES.length - 1];
+  }
+
+  function drawBetaCircularStarTrails(ctx, cx, cy, baseRadius, elapsed, intensity) {
+    const count = 240;
+    const orbitRadius = baseRadius * (0.9 + 0.18 * intensity);
+    const beat = betaBeat(elapsed, 1);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < count; i++) {
+      const seed = i * 0.6180339;
+      const lane = (i % 7) / 6;
+      const localR = orbitRadius * (0.62 + lane * 0.55);
+      const speed = 0.35 + lane * 0.55 + (seed % 0.3);
+      const phase = (seed * 10.0) % 1;
+      const angle = (phase + beat * 0.02 * speed) * Math.PI * 2;
+      const streak = (0.06 + lane * 0.05) * (0.6 + intensity * 0.8);
+      const tail = streak * (0.85 + 0.3 * Math.sin(beat * 0.2 + i));
+      const a0 = angle;
+      const a1 = angle - tail;
+      const alpha = clamp(0.08 + lane * 0.12 + intensity * 0.25, 0, 0.55);
+      ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+      ctx.lineWidth = 0.9 + lane * 0.8;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
-      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
-      ctx.strokeStyle = `rgba(255,255,255,${0.08 + stageProgress * 0.25})`;
-      ctx.lineWidth = 0.6;
+      ctx.arc(cx, cy, localR, a1, a0);
       ctx.stroke();
+      if (i % 9 === 0) {
+        const px = cx + Math.cos(a0) * localR;
+        const py = cy + Math.sin(a0) * localR;
+        ctx.fillStyle = `rgba(255,255,255,${clamp(alpha * 1.6, 0, 0.9)})`;
+        ctx.beginPath();
+        ctx.arc(px, py, 1.4 + lane * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
 
-  function drawBetaConvergingShards(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+  function drawBetaStagePulse(ctx, cx, cy, baseRadius, elapsed, intensity) {
+    const pulsePhase = betaBeat(elapsed, 1);
+    const accel = clamp(intensity, 0, 1);
+    const blinkSpeed = 0.6 + accel * 6.5;
+    const pulse = 1 + (0.05 + accel * 0.08) * Math.sin(pulsePhase * Math.PI * 2 * blinkSpeed);
     ctx.save();
-    ctx.fillStyle = `rgba(255,255,255,${0.1 + stageProgress * 0.35})`;
-    for (let i = 0; i < BETA_CONVERGING_COUNT; i++) {
-      const angle = (i / BETA_CONVERGING_COUNT) * Math.PI * 2 + elapsed * 0.45;
-      const startRadius = baseRadius * (1.6 - stageProgress * 0.5);
-      const endRadius = baseRadius * (0.65 + stageProgress * 0.1);
-      const radius = startRadius * (1 - stageProgress) + endRadius * stageProgress;
-      const px = cx + Math.cos(angle) * radius;
-      const py = cy + Math.sin(angle) * radius;
-      const tipRadius = radius * 0.72;
-      const tx = cx + Math.cos(angle) * tipRadius;
-      const ty = cy + Math.sin(angle) * tipRadius;
-      const width = 6 + Math.sin(elapsed * 0.4 + i) * 2;
+    const gradient = ctx.createRadialGradient(cx, cy, baseRadius * 0.12, cx, cy, baseRadius * 1.05);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.6)');
+    gradient.addColorStop(0.68, 'rgba(255,255,255,0.08)');
+    gradient.addColorStop(1, 'rgba(2,4,12,0)');
+    ctx.fillStyle = gradient;
+    ctx.globalAlpha = clamp(0.75 * intensity + 0.22, 0, 1);
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * (0.9 + 0.02 * intensity) * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${0.2 + 0.35 * intensity})`;
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 5; i++) {
+      const radius = baseRadius * (0.6 + i * 0.05);
+      const offset = betaBeat(elapsed, 0.12) + i * 0.45;
       ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(
-        tx + Math.sin(angle) * width * 0.6,
-        ty - Math.cos(angle) * width * 0.6
-      );
-      ctx.lineTo(
-        tx - Math.sin(angle) * width * 0.6,
-        ty + Math.cos(angle) * width * 0.6
-      );
-      ctx.closePath();
+      ctx.arc(cx, cy, radius, offset, offset + Math.PI * (0.35 + 0.15 * intensity));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = clamp(0.45 + intensity * 0.45, 0, 1);
+    BETA_STAR_POINTS.forEach((point, idx) => {
+      const jitter = Math.sin(betaBeat(elapsed, 0.25) + idx * 0.4) * 0.02;
+      const radius = baseRadius * (point.radius + jitter);
+      const drift = betaBeat(elapsed, 0.02);
+      const px = cx + Math.cos(point.angle + drift) * radius;
+      const py = cy + Math.sin(point.angle + drift) * radius;
+      const size = 2.2 + Math.sin(betaBeat(elapsed, 0.8) + idx) * 0.7;
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.beginPath();
+      ctx.arc(px, py, size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+
+    drawBetaCircularStarTrails(ctx, cx, cy, baseRadius, elapsed, intensity);
+
+    drawBetaDecorativeWords(ctx, cx, cy, baseRadius, elapsed, {
+      density: 18,
+      intensity: 0.25 + intensity * 0.55,
+      rotation: 0.04 + intensity * 0.04,
+      minRadius: 0.65,
+      maxRadius: 1.05,
+    });
+
+    drawBetaOrnamentalFiligree(ctx, cx, cy, baseRadius, elapsed, 0.55 + intensity * 0.45);
+  }
+
+  function drawBetaStageMapScene(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 1.06, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fillRect(cx - baseRadius * 1.2, cy - baseRadius * 1.2, baseRadius * 2.4, baseRadius * 2.4);
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 1.04, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    const gridCount = 9;
+    for (let i = 0; i < gridCount; i++) {
+      const t = (i / (gridCount - 1)) * 2 - 1;
+      const x = cx + t * baseRadius * 1.1;
+      const y = cy + t * baseRadius * 1.1;
+      ctx.beginPath();
+      ctx.moveTo(x, cy - baseRadius * 1.2);
+      ctx.lineTo(x, cy + baseRadius * 1.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - baseRadius * 1.2, y);
+      ctx.lineTo(cx + baseRadius * 1.2, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${0.25 + stageProgress * 0.45})`;
+    ctx.lineWidth = 1.3;
+    const ringCount = 6;
+    for (let i = 0; i < ringCount; i++) {
+      const radius = baseRadius * (0.35 + i * 0.1 + stageProgress * 0.02);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 0.9;
+    const spokes = 8;
+    for (let i = 0; i < spokes; i++) {
+      const angle = (i / spokes) * Math.PI * 2 + elapsed * 0.09;
+      const length = baseRadius * (0.65 + stageProgress * 0.15);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * length * 0.25, cy + Math.sin(angle) * length * 0.25);
+      ctx.lineTo(cx + Math.cos(angle) * length, cy + Math.sin(angle) * length);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 1.02, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.1;
+    const rivers = 4;
+    for (let r = 0; r < rivers; r++) {
+      const seed = r * 0.9 + 0.12;
+      ctx.beginPath();
+      for (let s = 0; s <= 20; s++) {
+        const t = s / 20;
+        const angle = (seed + t * 1.35 + Math.sin(betaBeat(elapsed, 0.08) + r) * 0.03) * Math.PI * 2;
+        const rad = baseRadius * (0.18 + t * 0.85) + Math.sin(t * 6 + seed * 10) * baseRadius * 0.04;
+        const x = cx + Math.cos(angle) * rad;
+        const y = cy + Math.sin(angle) * rad;
+        if (!s) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    BETA_MAP_HIGHLIGHTS.forEach(block => {
+      const radius = baseRadius * (block.radius + stageProgress * 0.07);
+      const angle = block.angle + stageProgress * 0.3;
+      const w = baseRadius * block.width;
+      const h = baseRadius * block.height;
+      ctx.save();
+      ctx.translate(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+      ctx.rotate(angle + Math.PI / 4);
+      ctx.globalAlpha = block.opacity * (0.5 + stageProgress * 0.5);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.restore();
+    });
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 1.04, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 1.2;
+    const cityCount = 18;
+    const nodes = [];
+    for (let i = 0; i < cityCount; i++) {
+      const lane = (i % 6) / 5;
+      const angle = (i / cityCount) * Math.PI * 2 + Math.sin(betaBeat(elapsed, 0.06) + i) * 0.03;
+      const radius = baseRadius * (0.22 + lane * 0.7);
+      nodes.push({
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+      });
+    }
+    ctx.globalAlpha = 0.55 + stageProgress * 0.25;
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      const b = nodes[(i + 3) % nodes.length];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (const node of nodes) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, 2.4, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
+
+    drawBetaDecorativeWords(ctx, cx, cy, baseRadius, elapsed, {
+      density: 26,
+      intensity: 0.6 + stageProgress * 0.35,
+      rotation: 0.05,
+      minRadius: 0.58,
+      maxRadius: 1.08,
+    });
+
+    drawBetaOrnamentalFiligree(ctx, cx, cy, baseRadius, elapsed, 0.35 + stageProgress * 0.5);
   }
 
-  function drawBetaPowerRings(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+  function drawBetaStageWheelScene(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    const spin = betaBeat(elapsed, 0.11) * Math.PI * 2;
+    const wobble = Math.sin(betaBeat(elapsed, 0.23)) * 0.04;
     ctx.save();
-    ctx.shadowColor = 'rgba(255,255,255,0.6)';
-    ctx.shadowBlur = 12;
-    const ringCount = 5;
-    for (let i = 0; i < ringCount; i++) {
-      const radius = baseRadius * (0.5 + i * 0.08 + stageProgress * 0.12);
-      const offset = elapsed * 0.6 + i * 0.4;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.translate(cx, cy);
+    ctx.rotate(spin * (0.8 + stageProgress * 0.25));
+
+    const outer = baseRadius * (0.96 - stageProgress * 0.05);
+    const inner = baseRadius * 0.38;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, outer, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(0, 0, outer * 0.82, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, inner, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const spokes = 12;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < spokes; i++) {
+      const a = (i / spokes) * Math.PI * 2 + wobble;
+      const r0 = inner * (0.95 - 0.05 * Math.sin(betaBeat(elapsed, 0.5) + i));
+      const r1 = outer * (0.78 + 0.04 * Math.cos(betaBeat(elapsed, 0.4) + i));
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, offset, offset + Math.PI * (1.0 + stageProgress * 0.4));
-      ctx.strokeStyle = `rgba(255,255,255,${0.35 + stageProgress * 0.25})`;
-      ctx.lineWidth = 1.4 + i * 0.4;
+      ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
+      ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
       ctx.stroke();
     }
-    const beamCount = 6;
-    for (let i = 0; i < beamCount; i++) {
-      const angle = (i / beamCount) * Math.PI * 2 + elapsed * 0.7;
+
+    const teeth = 28;
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    for (let i = 0; i < teeth; i++) {
+      const a = (i / teeth) * Math.PI * 2;
+      const tw = outer * 0.08;
+      const th = outer * 0.13;
+      ctx.save();
+      ctx.rotate(a);
+      ctx.translate(outer * 1.02, 0);
+      ctx.rotate(Math.PI / 2);
+      ctx.fillRect(-tw / 2, -th / 2, tw, th);
+      ctx.restore();
+    }
+
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 1.04, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    drawBetaDecorativeWords(ctx, cx, cy, baseRadius, elapsed, {
+      density: 30,
+      intensity: 0.55 + stageProgress * 0.35,
+      rotation: 0.07,
+      minRadius: 0.6,
+      maxRadius: 1.15,
+    });
+
+    drawBetaOrnamentalFiligree(ctx, cx, cy, baseRadius, elapsed, 0.4 + stageProgress * 0.45);
+  }
+
+  function drawBetaStageRoundaboutScene(ctx, cx, cy, baseRadius, elapsed, stageProgress) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${0.35 + stageProgress * 0.2})`;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * (0.55 + stageProgress * 0.08), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * (0.9 - stageProgress * 0.1), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    const crossCount = 4;
+    for (let i = 0; i < crossCount; i++) {
+      const angle = (i / crossCount) * Math.PI + elapsed * 0.08;
+      const length = baseRadius * 1.15;
       ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(angle) * baseRadius * 0.3, cy + Math.sin(angle) * baseRadius * 0.3);
-      ctx.lineTo(cx + Math.cos(angle) * baseRadius * 1.1, cy + Math.sin(angle) * baseRadius * 1.1);
-      ctx.strokeStyle = `rgba(255,255,255,${0.18 + stageProgress * 0.4})`;
-      ctx.lineWidth = 0.8;
+      ctx.moveTo(cx + Math.cos(angle) * length, cy + Math.sin(angle) * length);
+      ctx.lineTo(cx - Math.cos(angle) * length, cy - Math.sin(angle) * length);
       ctx.stroke();
     }
     ctx.restore();
+
+    ctx.save();
+    const umbrellaRadius = baseRadius * 0.1;
+    BETA_UMBRELLA_ANGLES.forEach((angle, idx) => {
+      const drift = Math.sin(betaBeat(elapsed, 0.1) + idx) * 0.015;
+      const px = cx + Math.cos(angle + drift) * baseRadius * 0.82;
+      const py = cy + Math.sin(angle + drift) * baseRadius * 0.82;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.globalAlpha = 0.55 + 0.3 * stageProgress;
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+      ctx.lineWidth = 1;
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(0, 0, umbrellaRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(0, 0, umbrellaRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      const ribs = 8;
+      for (let r = 0; r < ribs; r++) {
+        const a = (r / ribs) * Math.PI * 2 + betaBeat(elapsed, 0.03);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * umbrellaRadius, Math.sin(a) * umbrellaRadius);
+        ctx.stroke();
+      }
+      ctx.restore();
+    });
+    ctx.restore();
+
+    drawBetaDecorativeWords(ctx, cx, cy, baseRadius, elapsed, {
+      density: 28,
+      intensity: 0.65 + stageProgress * 0.25,
+      rotation: 0.06,
+      minRadius: 0.62,
+      maxRadius: 1.12,
+    });
+
+    drawBetaOrnamentalFiligree(ctx, cx, cy, baseRadius, elapsed, 0.42 + stageProgress * 0.4);
+  }
+
+  function drawBetaStageSigilScene(ctx, cx, cy, baseRadius, elapsed, stageProgress, canvasHeight) {
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${0.4 + stageProgress * 0.4})`;
+    ctx.lineWidth = 1.4;
+    for (let ring = 0; ring < 4; ring++) {
+      const radius = baseRadius * (0.52 + ring * 0.12 + stageProgress * 0.03);
+      const offset = elapsed * (0.35 + ring * 0.05);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, offset, offset + Math.PI * (1.2 + stageProgress * 0.2));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1;
+    for (let ray = 0; ray < 14; ray++) {
+      const angle = (ray / 14) * Math.PI * 2 + elapsed * 0.12;
+      const inner = baseRadius * 0.4;
+      const outer = baseRadius * (1.1 - stageProgress * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+      ctx.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.font = '18px "Yu Mincho","Hiragino Mincho ProN"';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.58)';
+    const textRadius = baseRadius * (1.0 + stageProgress * 0.08);
+    const words = BETA_DECORATIVE_WORDS;
+    const ringWords = 22;
+    for (let idx = 0; idx < ringWords; idx++) {
+      const word = words[(idx * 2) % words.length];
+      const angle = (idx / ringWords) * Math.PI * 2 + elapsed * 0.08;
+      const x = cx + Math.cos(angle) * textRadius;
+      const y = cy + Math.sin(angle) * textRadius;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle + Math.PI / 2);
+      ctx.fillText(word, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    drawBetaDecorativeWords(ctx, cx, cy, baseRadius, elapsed, {
+      density: 34,
+      intensity: 0.45 + stageProgress * 0.55,
+      rotation: 0.08,
+      minRadius: 0.55,
+      maxRadius: 1.18,
+    });
+
+    drawBetaOrnamentalFiligree(ctx, cx, cy, baseRadius, elapsed, 0.55 + stageProgress * 0.5);
+
+    const logoAlpha = clamp((stageProgress - 0.55) / 0.45, 0, 1);
+    if (logoAlpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = logoAlpha;
+      const canvasWidth = ctx.canvas ? ctx.canvas.width : 0;
+      const safePadding = Math.max(14, Math.min(canvasWidth, canvasHeight) * 0.04);
+      const fontSize = clamp(Math.round(Math.min(46, canvasHeight * 0.075)), 22, 46);
+      const gradientX = cx + baseRadius * 0.55;
+      const gradient = ctx.createLinearGradient(gradientX, cy - 140, gradientX, cy + 140);
+      gradient.addColorStop(0, '#ffffff');
+      gradient.addColorStop(1, '#86b8ff');
+      ctx.fillStyle = gradient;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.font = `600 ${fontSize}px "Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif`;
+      let letterSpacing = Math.round(fontSize * 0.86);
+      const maxTotalHeight = canvasHeight - safePadding * 2;
+      if (letterSpacing * BETA_LOGO_LETTERS.length > maxTotalHeight) {
+        letterSpacing = Math.max(14, Math.floor(maxTotalHeight / BETA_LOGO_LETTERS.length));
+      }
+      const totalHeight = letterSpacing * BETA_LOGO_LETTERS.length;
+      let startY = cy - totalHeight / 2;
+      if (startY < safePadding) startY = safePadding;
+      if (startY + totalHeight > canvasHeight - safePadding) startY = canvasHeight - safePadding - totalHeight;
+      const desiredX = cx + baseRadius * 0.7;
+      const x = clamp(desiredX, safePadding + fontSize * 0.6, canvasWidth - safePadding - fontSize * 0.6);
+      for (let i = 0; i < BETA_LOGO_LETTERS.length; i++) {
+        const letter = BETA_LOGO_LETTERS[i];
+        const y = startY + i * letterSpacing;
+        ctx.fillText(letter, x, y);
+      }
+      ctx.restore();
+    }
   }
 
   function previewTileColor(tile) {
-    if (!tile) return '#10121a';
-    switch (tile.base) {
-      case BASE.SEA:
-        return '#0c1c2a';
-      case BASE.LAKE:
-        return '#163144';
-      case BASE.MOUNTAIN:
-        return '#4d4d5b';
-      case BASE.DESERT:
-        return '#c39b50';
-      case BASE.FOREST:
-        return '#1d3a1f';
-      case BASE.GRASS:
-      default:
-        return '#2e5b2a';
-    }
+    if (!tile) return '#050505';
+    return computeTileGrayscale(tile.base, tile.h || 0, -8);
   }
 
   function renderMapPreview(ctx, opacity) {
@@ -695,15 +1167,25 @@
     if (!openingState.startTime) {
       openingState.startTime = timestamp;
     }
+    syncOpeningCanvasResolution();
     const elapsed = (timestamp - openingState.startTime) / 1000;
     const ctx = openingState.ctx;
-    const canvas = ctx.canvas;
-    const width = canvas.width;
-    const height = canvas.height;
-    const centerX = width / 2;
+    const width = openingState.viewW || 320;
+    const height = openingState.viewH || 200;
+    const targetW = 320;
+    const targetH = 200;
+    const scale = Math.min(width / targetW, height / targetH);
+    const offsetX = (width - targetW * scale) / 2;
+    const offsetY = (height - targetH * scale) / 2;
+    ctx.save();
+    ctx.setTransform(openingState.dpr, 0, 0, openingState.dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+    const centerX = targetW / 2;
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#03060f';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, targetW, targetH);
 
     if (elapsed >= 5 && elapsed < 12) {
       const text = '……ここはどこだ？‥‥‥';
@@ -786,10 +1268,12 @@
     }
 
     if (elapsed >= OPENING_DURATION) {
+      ctx.restore();
       finishOpening('complete');
       return;
     }
 
+    ctx.restore();
     openingState.animationId = requestAnimationFrame(openingState.renderFn || renderClassicOpeningFrame);
   }
 
@@ -798,73 +1282,73 @@
     if (!openingState.startTime) {
       openingState.startTime = timestamp;
     }
+    syncOpeningCanvasResolution();
     const elapsed = (timestamp - openingState.startTime) / 1000;
     const ctx = openingState.ctx;
-    const canvas = ctx.canvas;
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.fillStyle = '#01030a';
+    const w = openingState.viewW || 320;
+    const h = openingState.viewH || 200;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#02030a';
     ctx.fillRect(0, 0, w, h);
-    const cx = w / 2;
-    const cy = h * 0.45;
-    const baseRadius = Math.min(w, h) * (0.32 + 0.03 * Math.sin(elapsed * 0.2));
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const driftX = Math.sin(betaBeat(elapsed, 0.05)) * w * 0.008;
+    const driftY = Math.cos(betaBeat(elapsed, 0.04)) * h * 0.01;
+    const cx = w / 2 + driftX;
+    const cy = h * 0.48 + driftY;
+    const stageInfo = getBetaStageInfo(elapsed);
+    const stageDuration = Math.max(0.01, stageInfo.end - stageInfo.start);
+    const stageProgress = clamp((elapsed - stageInfo.start) / stageDuration, 0, 1);
+    const baseRadius = Math.min(w, h) * (0.33 + 0.025 * Math.sin(elapsed * 0.13));
+    const borderAlpha = 0.1 + 0.12 * Math.sin(betaBeat(elapsed, 0.08));
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(255,255,255,${borderAlpha})`;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.arc(cx, cy, baseRadius * 0.5, 0, Math.PI * 2);
+    ctx.arc(cx, cy, baseRadius * 1.07, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
-    const stage = getBetaStage(elapsed);
-    const stageProgress = Math.min(1, Math.max(0, (elapsed - stage * 10) / 10));
-    const sigilIntensity = Math.max(0.4, 1 - stage * 0.15);
-    drawBetaRingGrid(ctx, cx, cy, baseRadius, elapsed);
-    drawBetaMagicSigils(ctx, cx, cy, baseRadius, elapsed, sigilIntensity);
-    drawBetaCityHalo(ctx, cx, cy, baseRadius, elapsed);
-    const formationProgress = stage < 2 ? stageProgress : 1;
-    drawBetaConvergingShards(ctx, cx, cy, baseRadius, elapsed, formationProgress);
-    if (stage >= 1) {
-      drawBetaCityClusters(ctx, cx, cy, baseRadius, elapsed, stageProgress);
-    }
-    if (stage >= 2) {
-      drawBetaMapContours(ctx, cx, cy, baseRadius, elapsed, stageProgress);
-    }
-    if (stage >= 3) {
-      drawBetaPowerRings(ctx, cx, cy, baseRadius, elapsed, stageProgress);
-    }
-    const shimmerAngle = elapsed * (0.4 + stage * 0.05);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 0.8 + stage * 0.2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseRadius * 0.85, shimmerAngle, shimmerAngle + Math.PI / 6);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseRadius * 0.85, shimmerAngle + Math.PI, shimmerAngle + Math.PI + Math.PI / 6);
-    ctx.stroke();
-    ctx.restore();
-    if (elapsed >= 30) {
+
+    const stages = BETA_STAGES;
+    const stageIndex = Math.max(0, stages.findIndex(s => s.id === stageInfo.id));
+    const nextStage = stages[Math.min(stages.length - 1, stageIndex + 1)];
+    const fadeWindow = 1.25;
+    const toNext = nextStage && nextStage !== stageInfo ? smoothstep(stageInfo.end - fadeWindow, stageInfo.end, elapsed) : 0;
+    const alphaCurrent = 1 - toNext;
+    const alphaNext = toNext;
+
+    const drawStage = (id, alpha, progressOverride) => {
+      if (alpha <= 0) return;
       ctx.save();
-      ctx.textAlign = 'center';
-      const logoY = h * 0.85;
-      const gradient = ctx.createLinearGradient(cx - 120, logoY - 16, cx + 120, logoY + 16);
-      gradient.addColorStop(0, '#ffffff');
-      gradient.addColorStop(0.45, '#d2e8ff');
-      gradient.addColorStop(1, '#8fb1ff');
-      ctx.fillStyle = gradient;
-      ctx.font = `48px "Noto Sans JP", "Hiragino Kaku Gothic Pro", "MS Gothic", "Meiryo", sans-serif`;
-      ctx.shadowColor = 'rgba(255,255,255,0.6)';
-      ctx.shadowBlur = 16;
-      const logoAlpha = Math.min(1, (elapsed - 30) / 2);
-      ctx.globalAlpha = logoAlpha;
-      ctx.fillText('railTrail', cx, logoY);
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 0.9;
-      ctx.strokeText('railTrail', cx, logoY);
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = alpha;
+      switch (id) {
+        case 'stars':
+          drawBetaStagePulse(ctx, cx, cy, baseRadius, elapsed, progressOverride ?? stageProgress);
+          break;
+        case 'map':
+          drawBetaStageMapScene(ctx, cx, cy, baseRadius, elapsed, progressOverride ?? stageProgress);
+          break;
+        case 'wheel':
+          drawBetaStageWheelScene(ctx, cx, cy, baseRadius, elapsed, progressOverride ?? stageProgress);
+          break;
+        case 'roundabout':
+          drawBetaStageRoundaboutScene(ctx, cx, cy, baseRadius, elapsed, progressOverride ?? stageProgress);
+          break;
+        case 'sigil':
+          drawBetaStageSigilScene(ctx, cx, cy, baseRadius, elapsed, progressOverride ?? stageProgress, h);
+          break;
+        default:
+          drawBetaStagePulse(ctx, cx, cy, baseRadius, elapsed, 0.8);
+      }
       ctx.restore();
+    };
+
+    drawStage(stageInfo.id, alphaCurrent, stageProgress);
+    if (alphaNext > 0.001 && nextStage) {
+      drawStage(nextStage.id, alphaNext, 0);
     }
+
+    drawBetaVignetteAndNoise(ctx, w, h, elapsed, 1);
     if (elapsed >= BETA_OPENING_DURATION) {
       finishOpening('complete');
       return;
@@ -887,6 +1371,10 @@
       window.removeEventListener('pointerdown', openingState.pointerListener, true);
       openingState.pointerListener = null;
     }
+    if (openingState.resizeListener) {
+      window.removeEventListener('resize', openingState.resizeListener, true);
+      openingState.resizeListener = null;
+    }
     await fadeOutOpeningAudio(0.4);
     if (openingState.overlay && openingState.overlay.parentNode) {
       openingState.overlay.parentNode.removeChild(openingState.overlay);
@@ -908,6 +1396,9 @@
     openingState.variant = 'classic';
     openingState.renderFn = null;
     openingState.completing = false;
+    openingState.viewW = 0;
+    openingState.viewH = 0;
+    openingState.dpr = 1;
     if (typeof resolver === 'function') resolver();
     if (typeof onComplete === 'function') onComplete();
   }
@@ -920,6 +1411,7 @@
     openingState.overlay = overlay;
     openingState.canvas = canvas;
     openingState.ctx = canvas.getContext('2d');
+    syncOpeningCanvasResolution();
     openingState.skippable = Boolean(skippable);
     openingState.mode = mode;
     openingState.variant = variant === 'beta' ? 'beta' : 'classic';
@@ -936,6 +1428,8 @@
     };
     window.addEventListener('keydown', openingState.keyListener, true);
     window.addEventListener('pointerdown', openingState.pointerListener, true);
+    openingState.resizeListener = () => syncOpeningCanvasResolution();
+    window.addEventListener('resize', openingState.resizeListener, true);
     openingState.animationId = requestAnimationFrame(openingState.renderFn);
     startOpeningAudio().catch(() => {});
     return new Promise(resolve => {
@@ -1894,7 +2388,7 @@
             time.textContent = formatGameDate(log.turn);
             const body = document.createElement('div');
             body.style.fontSize = '13px';
-            body.style.color = '#111';
+            body.style.color = 'var(--ui-text)';
             body.textContent = log.text;
             row.appendChild(time);
             row.appendChild(body);
@@ -2220,7 +2714,7 @@
         if (!storyActionTimeline.length) {
           const empty = document.createElement('div');
           empty.textContent = '記録がまだありません';
-          empty.style.color = '#555';
+          empty.style.color = 'var(--ui-text-dim)';
           container.appendChild(empty);
         } else {
           const entries = [...storyActionTimeline].reverse();
@@ -2270,19 +2764,6 @@
         action: () => launchGalleryOpening('beta'),
       },
       {
-        title: '古いOPアニメーション',
-        description: '従来のバージョンと演出をもう一度',
-        action: () => launchGalleryOpening('classic'),
-      },
-      {
-        title: '王命新聞（過去ログ）',
-        description: '定期号アーカイブを見る（ネタバレ注意）',
-        action: () => {
-          closeStoryOverlay(overlayId);
-          openGalleryNewsArchive();
-        },
-      },
-      {
         title: 'タイトルロゴ',
         description: 'ロゴを眺めて余韻に浸る（準備中）',
       },
@@ -2316,6 +2797,8 @@
       title: 'ギャラリー',
       body: container,
       modal: true,
+      center: true,
+      layout: 'modern',
       buttons: [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }],
       animate: true,
     });
@@ -2332,7 +2815,7 @@
     container.style.gap = '10px';
     const warning = document.createElement('div');
     warning.style.fontSize = '12px';
-    warning.style.color = '#140404';
+    warning.style.color = 'var(--ui-text)';
     warning.style.fontWeight = '600';
     warning.textContent = 'ネタバレ注意：物語の進行やAIの判断が含まれます。';
     container.appendChild(warning);
@@ -2741,6 +3224,9 @@
     successionShown:false,
     firstCityInspect:false,
     firstCapitalSet:false,
+    factionTension:false,
+    civilUnrestSeed:false,
+    thirdPrinceObserving:false,
   };
 
   const STORY_SCENARIOS = {
@@ -2755,7 +3241,7 @@
     {
       id: 'noble',
       label: '貴族の令嬢',
-      name: '奏 (かなで)',
+      name: 'ルカ (るか)',
       note: '宮廷詩人として名を馳せる中性的な才媛。',
       initialAffection: 52,
       initialInfluence: 58,
@@ -2765,7 +3251,7 @@
     {
       id: 'activist',
       label: '庶民出身の活動家',
-      name: '律 (りつ)',
+      name: 'リツ (りつ)',
       note: '民衆の声を代弁する演説家。',
       initialAffection: 50,
       initialInfluence: 52,
@@ -2775,7 +3261,7 @@
     {
       id: 'soldier',
       label: '主人公と同性の軍人',
-      name: '優 (ゆう)',
+      name: 'ユラ (ゆら)',
       note: '軍籍を持つ親友のような存在。',
       initialAffection: 48,
       initialInfluence: 55,
@@ -2789,11 +3275,11 @@
       candidateId: 'noble',
       offset: 3,
       title: '宮廷の晩餐',
-      description: '貴族の令嬢・奏と隣席となった。インフラ会議の余韻を共有する。',
+      description: '貴族の令嬢・ルカと隣席となった。インフラ会議の余韻を共有する。',
       choices: [
         {
           label: '優雅に会食を続ける',
-          summary: 'ハウスイベントで奏と親しく振る舞い、貴族の信頼を得た。',
+          summary: 'ハウスイベントでルカと親しく振る舞い、貴族の信頼を得た。',
           effects: {
             affection: 6,
             influence: 2,
@@ -2817,7 +3303,7 @@
       candidateId: 'activist',
       offset: 6,
       title: '草の根の火花',
-      description: '活動家・律が市街地で移民支援の覚書を手渡す。',
+      description: '活動家・リツが市街地で移民支援の覚書を手渡す。',
       choices: [
         {
           label: '改革案に賛同する',
@@ -2831,7 +3317,7 @@
         },
         {
           label: '夜間の治安出動を命じる',
-          summary: '治安優先を示しつつ律に力を貸さない姿勢を示した。',
+          summary: '治安優先を示しつつリツに力を貸さない姿勢を示した。',
           effects: {
             affection: 1,
             support: { military: 2 },
@@ -2845,7 +3331,7 @@
       candidateId: 'soldier',
       offset: 8,
       title: '軍営の夜',
-      description: '軍人・優に招かれ、訓練場で分隊を視察する。',
+      description: '軍人・ユラに招かれ、訓練場で分隊を視察する。',
       choices: [
         {
           label: '士官と飲み交わす',
@@ -2873,11 +3359,11 @@
       candidateId: 'noble',
       offset: 10,
       title: '庭園の対話',
-      description: '奏と庭園を歩きながら魔法研究の展望を語る。',
+      description: 'ルカと庭園を歩きながら魔法研究の展望を語る。',
       choices: [
         {
           label: '研究者たちを称える',
-          summary: '魔法研究への理解を示し、奏と同じ視線を得た。',
+          summary: '魔法研究への理解を示し、ルカと同じ視線を得た。',
           effects: {
             affection: 4,
             support: { citizens: 1, nobility: 2 },
@@ -2900,11 +3386,11 @@
       candidateId: 'activist',
       offset: 14,
       title: '民衆の声',
-      description: '律に誘われ、庶民地区で行動を共にする。',
+      description: 'リツに誘われ、庶民地区で行動を共にする。',
       choices: [
         {
           label: '移民支援を約束',
-          summary: '政策転換の兆しを見せ、律との結びつきが強まった。',
+          summary: '政策転換の兆しを見せ、リツとの結びつきが強まった。',
           effects: {
             affection: 4,
             support: { citizens: 3 },
@@ -2926,11 +3412,11 @@
       candidateId: 'soldier',
       offset: 16,
       title: '忠誠の誓い',
-      description: '優が前線指揮を終え帰還し、王へ忠誠を誓う。',
+      description: 'ユラが前線指揮を終え帰還し、王へ忠誠を誓う。',
       choices: [
         {
           label: '軍務を祝し礼を返す',
-          summary: '軍の絆が深まり、優との距離も縮まる。',
+          summary: '軍の絆が深まり、ユラとの距離も縮まる。',
           effects: {
             affection: 4,
             influence: 2,
@@ -2955,10 +3441,10 @@
       offset: 6,
       candidateId: 'noble',
       title: '静かな挨拶',
-      summary: '王令新聞「静かな挨拶」奏と王が視線を交わした。防衛団もその存在に目を向ける。',
+      summary: '王令新聞「静かな挨拶」ルカと王が視線を交わした。防衛団もその存在に目を向ける。',
       paragraphs: [
-        '宮廷晩餐にて、貴族の令嬢・奏がギャラリー越しに穏やかな視線を送る。',
-        '王令新聞は「静かな挨拶」と題し、王と奏の距離が少し縮まったことを伝えた。',
+        '宮廷晩餐にて、貴族の令嬢・ルカがギャラリー越しに穏やかな視線を送る。',
+        '王令新聞は「静かな挨拶」と題し、王とルカの距離が少し縮まったことを伝えた。',
       ],
       actionId: 'story_romance_noble',
     },
@@ -2967,9 +3453,9 @@
       offset: 12,
       candidateId: 'activist',
       title: '草の根の火花',
-      summary: '王令新聞「草の根の火花」民衆の声を代弁する律と王が路地で言葉を交わした。',
+      summary: '王令新聞「草の根の火花」民衆の声を代弁するリツと王が路地で言葉を交わした。',
       paragraphs: [
-        '庶民出身の活動家・律が、街角の演説後に静かに王に語り掛けた。',
+        '庶民出身の活動家・リツが、街角の演説後に静かに王に語り掛けた。',
         '王令新聞は「草の根の火花」と記し、支持・勢力のバランスが新たな色を帯びたと報じる。',
       ],
       actionId: 'story_romance_activist',
@@ -2979,15 +3465,30 @@
       offset: 18,
       candidateId: 'soldier',
       title: '戦友との夜',
-      summary: '王令新聞「戦友との夜」優と共に訓練を見守った王の背中を、師団が追う。',
+      summary: '王令新聞「戦友との夜」ユラと共に訓練を見守った王の背中を、師団が追う。',
       paragraphs: [
-        '王は軍営を訪れ、主人公と同性の軍人・優と訓練場を歩いた。',
+        '王は軍営を訪れ、主人公と同性の軍人・ユラと訓練場を歩いた。',
         '王令新聞は「戦友との夜」と題し、同じ軍歌を口ずさむ二人の距離を伝えた。',
       ],
       actionId: 'story_romance_soldier',
     },
   ];
   const ROMANCE_ENGAGEMENT_OFFSET = 24;
+  const ROMANCE_ENGAGEMENT_WINDOW = 60;
+  const ROMANCE_ENGAGEMENT_THRESHOLD = 60;
+
+  function getTopEngagementCandidate(state) {
+    if (!state) return null;
+    const candidateScores = ROMANCE_CANDIDATES
+      .map(candidate => {
+        const data = getRomanceCandidateData(state, candidate.id);
+        return { candidate, data };
+      })
+      .filter(entry => entry.data && (entry.data.affection || 0) >= ROMANCE_ENGAGEMENT_THRESHOLD);
+    if (!candidateScores.length) return null;
+    candidateScores.sort((a, b) => (b.data.affection || 0) - (a.data.affection || 0));
+    return candidateScores[0].candidate;
+  }
 
   function ensureRomanceData(state) {
     if (!state) return null;
@@ -3082,7 +3583,12 @@
     return {
       currentChapterId: defaultChapter ? defaultChapter.chapterId : null,
       chapterFlags: {},
-      chapterMetrics: { uncertainty: 0 },
+      chapterMetrics: {
+        uncertainty: 0,
+        nextChapter2Turn: null,
+        chapter2Started: false,
+        chapter2Completed: false,
+      },
     };
   }
 
@@ -3227,6 +3733,29 @@
         princeFactionActive: false,
       },
     },
+    chapter_02: {
+      chapterId: 'chapter_02',
+      title: '王国のざわめき',
+      introText: '婚約破棄の余波が静かに国土を駆け巡り、王家の沈黙に不安の気配が集まる。',
+      worldReactionTexts: [
+        '王国各地で、王家の判断を疑問視する声が増えている',
+        '未解決の婚約破棄に人々の視線が向き、各地の貴族と民衆がズレを感じる',
+        '沈黙する王家に、誰かが声を上げる前に張り詰めた空気が流れている',
+      ],
+      startTurn: 0,
+      endTurn: 12,
+      flags: {
+        startTurn: null,
+        event1Shown: false,
+        factionFlagsSet: false,
+        event3Shown: false,
+        thirdPrinceObserving: false,
+        endEventShown: false,
+        chapterCompletedAt: null,
+        factionTension: false,
+        civilUnrestSeed: false,
+      },
+    },
   };
   const DEFAULT_STORY_CHAPTER_ID = 'chapter_01';
   function createStoryScenarioState() {
@@ -3253,6 +3782,7 @@
       romanceScandalTriggered: false,
       romanceMissedOpportunity: false,
       chapterProgress: createChapterProgressState(),
+      storyChapter: 1,
     };
   }
 
@@ -3291,6 +3821,7 @@
       copy.romanceStages = { ...createStoryScenarioState().romanceStages, ...(data.romanceStages || {}) };
       copy.romanceEngagementAnnounced = typeof data.romanceEngagementAnnounced === 'boolean' ? data.romanceEngagementAnnounced : false;
       copy.romanceEngagedCandidate = data.romanceEngagedCandidate || null;
+      copy.storyChapter = typeof data.storyScenario?.storyChapter === 'number' ? data.storyScenario.storyChapter : 1;
       storyScenarioState = copy;
     } else {
       resetStoryScenarioState();
@@ -3303,12 +3834,16 @@
     showRoyalNewspaper(entry, currentTurn);
   }
 
-  function createStoryNarrativeContainer(paragraphs) {
+  function createStoryNarrativeContainer(paragraphs, fallback) {
     const container = document.createElement('div');
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
     container.style.gap = '10px';
-    (paragraphs || []).forEach(text => {
+    const list = Array.isArray(paragraphs) ? paragraphs.slice() : [];
+    if (!list.length && fallback) {
+      list.push(fallback);
+    }
+    list.forEach(text => {
       const p = document.createElement('p');
       p.textContent = text;
       container.appendChild(p);
@@ -3321,7 +3856,8 @@
     if (!root || !opts) return false;
     const { id, title, paragraphs, summary, actionId, buttonLabel } = opts;
     if (!id || overlayStack.find(o => o.id === id)) return false;
-    const container = createStoryNarrativeContainer(paragraphs);
+    const fallback = summary || '王令新聞が現状の空気を伝える。';
+    const container = createStoryNarrativeContainer(paragraphs, fallback);
     const mobileUI = document.body && document.body.classList.contains('mobile-ui-enabled');
     if (mobileUI && openMobileRoyalNewsPanel(paragraphs.map(text => ({
       actorName: '王令新聞',
@@ -3570,6 +4106,17 @@
     maybeTriggerRomanceScandal(state);
   }
 
+  const ROMANCE_INTERACTION_WINDOW = 4;
+
+  function romanceInteractionProbability(relative, offset) {
+    if (relative === offset) return 1;
+    const age = relative - offset;
+    if (age <= 0) return 0;
+    if (age > ROMANCE_INTERACTION_WINDOW) return 0;
+    const ramp = age / ROMANCE_INTERACTION_WINDOW;
+    return clamp(0.4 + ramp * 0.6, 0, 1);
+  }
+
   function maybeTriggerRomanceInteraction(state) {
     if (!state || state.stage !== STORY_SCENARIOS.POST_SUCCESSION) return false;
     if (roles.player !== 'king') return false;
@@ -3577,7 +4124,10 @@
     const relative = currentTurn - state.successionTurn;
     return ROMANCE_INTERACTIONS.some(interaction => {
       if (state.romanceInteractions[interaction.id]) return false;
-      if (relative !== interaction.offset) return false;
+      if (relative < interaction.offset) return false;
+      const prob = romanceInteractionProbability(relative, interaction.offset);
+      if (prob <= 0) return false;
+      if (Math.random() > prob) return false;
       showRomanceInteractionOverlay(state, interaction);
       return true;
     });
@@ -3685,8 +4235,9 @@
     closeStoryOverlay(overlayId);
   }
 
-  function openRomanceEngagementOverlay(state) {
+  function openRomanceEngagementOverlay(state, candidate) {
     if (!state || state.romanceEngagementAnnounced) return false;
+    if (!candidate) return false;
     const overlayId = 'story-romance-engagement';
     if (overlayStack.find(o => o.id === overlayId)) return true;
     state.romanceEngagementAnnounced = true;
@@ -3695,38 +4246,36 @@
     container.style.flexDirection = 'column';
     container.style.gap = '10px';
     const intro = document.createElement('p');
-    intro.textContent = '王令新聞「婚約の鐘」— 王は候補たちとの絆を選び、国家に新しい物語を刻もうとしている。';
+    intro.textContent = `王令新聞「婚約の鐘」${candidate.name}との絆が注目される。`;
     container.appendChild(intro);
-    ROMANCE_CANDIDATES.forEach(candidate => {
-      const row = document.createElement('div');
-      row.style.display = 'flex';
-      row.style.justifyContent = 'space-between';
-      row.style.alignItems = 'center';
-      row.style.padding = '8px';
-      row.style.borderRadius = '10px';
-      row.style.background = 'rgba(255,255,255,0.02)';
-      row.style.border = '1px solid rgba(255,255,255,0.08)';
-      const info = document.createElement('div');
-      info.style.display = 'flex';
-      info.style.flexDirection = 'column';
-      info.style.gap = '4px';
-      const title = document.createElement('strong');
-      title.textContent = `${candidate.label} (${candidate.name})`;
-      const detail = document.createElement('span');
-      detail.style.fontSize = '12px';
-      detail.style.opacity = '0.7';
-      detail.textContent = candidate.note;
-      info.appendChild(title);
-      info.appendChild(detail);
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn';
-      btn.textContent = '婚約する';
-      btn.addEventListener('click', () => finalizeRomanceEngagement(overlayId, state, candidate));
-      row.appendChild(info);
-      row.appendChild(btn);
-      container.appendChild(row);
-    });
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.alignItems = 'center';
+    row.style.padding = '8px';
+    row.style.borderRadius = '10px';
+    row.style.background = 'rgba(255,255,255,0.02)';
+    row.style.border = '1px solid rgba(255,255,255,0.08)';
+    const info = document.createElement('div');
+    info.style.display = 'flex';
+    info.style.flexDirection = 'column';
+    info.style.gap = '4px';
+    const title = document.createElement('strong');
+    title.textContent = `${candidate.label} (${candidate.name})`;
+    const detail = document.createElement('span');
+    detail.style.fontSize = '12px';
+    detail.style.opacity = '0.7';
+    detail.textContent = candidate.note;
+    info.appendChild(title);
+    info.appendChild(detail);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = '婚約する';
+    btn.addEventListener('click', () => finalizeRomanceEngagement(overlayId, state, candidate));
+    row.appendChild(info);
+    row.appendChild(btn);
+    container.appendChild(row);
     timeControl.speed = 0;
     updateControlButtons();
     showStoryOverlay({
@@ -3748,7 +4297,10 @@
     if (state.successionTurn == null) return false;
     if (state.romanceEngagementAnnounced) return false;
     if (currentTurn < state.successionTurn + ROMANCE_ENGAGEMENT_OFFSET) return false;
-    return openRomanceEngagementOverlay(state);
+    if (currentTurn > state.successionTurn + ROMANCE_ENGAGEMENT_WINDOW) return false;
+    const candidate = getTopEngagementCandidate(state);
+    if (!candidate) return false;
+    return openRomanceEngagementOverlay(state, candidate);
   }
 
   function maybeTriggerDivisionEra(state) {
@@ -4012,6 +4564,13 @@
   let overlayCounter = 0;
   let lastRoyalNewsOverlayId = null;
 
+  function updateStoryOverlayBackdrop() {
+    if (!storyOverlayRoot) return;
+    const headless = document.body?.classList.contains('title-active');
+    const shouldShow = overlayStack.length > 0 && (!isMobileUIEnabled() || headless);
+    storyOverlayRoot.classList.toggle('has-backdrop', shouldShow);
+  }
+
   const SE_SOURCES = {
     major: './music/se/fanfare.wav',
     news: './music/se/news.wav',
@@ -4142,6 +4701,78 @@
     mobileModalShell.appendChild(modalContainer);
     const overlay = { id: overlayId, title, modal, el: modalContainer };
     overlayStack.push(overlay);
+    updateStoryOverlayBackdrop();
+    const caption = typeof mobileTitle === 'string' ? mobileTitle : (typeof title === 'string' ? title : '');
+    if (caption) {
+      registerMobileOverlayEntry(overlayId, caption, () => closeStoryOverlay(overlayId));
+    }
+    updateMobileOverlayHeader();
+    return overlayId;
+  }
+
+  function showModernOverlay(options, overlayId) {
+    const root = ensureStoryOverlayRoot();
+    if (!root) return null;
+    const {
+      title,
+      body,
+      buttons = [],
+      modal=false,
+      mobileTitle,
+      width,
+    } = options || {};
+    const overlayEl = document.createElement('div');
+    overlayEl.className = 'modern-overlay';
+    if (!modal) {
+      overlayEl.addEventListener('click', (event) => {
+        if (event.target === overlayEl) {
+          closeStoryOverlay(overlayId);
+        }
+      });
+    }
+    const card = document.createElement('div');
+    card.className = 'modern-card';
+    if (width) {
+      card.style.setProperty('width', width);
+    }
+    const header = document.createElement('div');
+    header.className = 'modern-card-header';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'modern-card-title';
+    titleEl.textContent = title || '';
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn modern-close-btn';
+    closeBtn.textContent = '閉じる';
+    closeBtn.addEventListener('click', () => closeStoryOverlay(overlayId));
+    header.appendChild(titleEl);
+    header.appendChild(closeBtn);
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'modern-card-body';
+    appendContentTo(bodyEl, body);
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'modern-card-buttons';
+    const effectiveButtons = buttons && buttons.length ? buttons : [{ label: '閉じる', action: () => closeStoryOverlay(overlayId) }];
+    effectiveButtons.forEach(cfg => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn';
+      btn.textContent = cfg.label || 'OK';
+      btn.addEventListener('click', () => {
+        if (typeof cfg.action === 'function') {
+          cfg.action();
+        }
+      });
+      buttonRow.appendChild(btn);
+    });
+    card.appendChild(header);
+    card.appendChild(bodyEl);
+    card.appendChild(buttonRow);
+    overlayEl.appendChild(card);
+    root.appendChild(overlayEl);
+    const overlay = { id: overlayId, title, modal, el: overlayEl };
+    overlayStack.push(overlay);
+    updateStoryOverlayBackdrop();
     const caption = typeof mobileTitle === 'string' ? mobileTitle : (typeof title === 'string' ? title : '');
     if (caption) {
       registerMobileOverlayEntry(overlayId, caption, () => closeStoryOverlay(overlayId));
@@ -4173,9 +4804,14 @@
     if (existing) {
       return overlayId;
     }
-    const useMobileModal = document.body?.classList.contains('mobile-ui-enabled') && mobileModalShell;
+    const readyMobileModal = mobileModalShell && mobileModalShell.isConnected;
+    const prefersModernLayout = !!(options && options.layout === 'modern');
+    const useMobileModal = !prefersModernLayout && document.body?.classList.contains('mobile-ui-enabled') && readyMobileModal;
     if (useMobileModal) {
       return showStoryOverlayMobile(options, overlayId);
+    }
+    if (options && options.layout === 'modern') {
+      return showModernOverlay(options, overlayId);
     }
     const win = document.createElement('div');
     win.className = 'win98-window';
@@ -4296,6 +4932,7 @@
     root.appendChild(win);
     const overlay = { id:overlayId, title, modal, el:win };
     overlayStack.push(overlay);
+    updateStoryOverlayBackdrop();
     const caption = typeof mobileTitle === 'string' ? mobileTitle : (typeof title === 'string' ? title : '');
     if (caption) {
       registerMobileOverlayEntry(overlayId, caption, () => closeStoryOverlay(overlayId));
@@ -4325,13 +4962,18 @@
         railOverlayContext = null;
       }
       railScheduleStateRefresher = null;
+      updateStoryOverlayBackdrop();
     }
 
   function openStorySetupWindow(options = {}) {
-    if (isMobileUIEnabled()) {
+    if (appState !== 'title') return null;
+    const bodyEl = document.body;
+    const showMobileModal = isMobileUIEnabled() && bodyEl && !bodyEl.classList.contains('title-active');
+    if (showMobileModal) {
       openMobileStorySetup(options);
       return;
     }
+    const { center = true } = options;
     const container = document.createElement('div');
     const onComplete = typeof options.afterSetup === 'function' ? options.afterSetup : null;
 
@@ -4378,6 +5020,8 @@
       title:'ストーリーモード設定',
       body:container,
       modal:true,
+      center: center,
+      layout:'modern',
       buttons:[
         {
           label:'開始',
@@ -4446,11 +5090,12 @@
     setTitleStatus('');
       switchToMap('新しい世界を生成しました');
     });
-  if (storyModeBtn) storyModeBtn.addEventListener('click', () => {
+  const tryLaunchStoryModeFromTitle = () => {
     if (appState !== 'title' || openingState.playing) return;
     const galleryOverlay = overlayStack.find(o => o.id === 'gallery-overlay');
     if (galleryOverlay) closeStoryOverlay('gallery-overlay');
     openStorySetupWindow({
+      center: true,
       afterSetup: () => {
         const firstTime = !hasOpeningWatchedFlag();
         playOpening({
@@ -4463,11 +5108,31 @@
         });
       },
     });
-  });
-  if (galleryBtn) galleryBtn.addEventListener('click', () => {
+  };
+
+  const tryLaunchGalleryFromTitle = () => {
     if (appState !== 'title' || openingState.playing) return;
     openGalleryOverlay();
-  });
+  };
+
+  if (storyModeBtn) storyModeBtn.addEventListener('click', tryLaunchStoryModeFromTitle);
+  if (galleryBtn) galleryBtn.addEventListener('click', tryLaunchGalleryFromTitle);
+  if (titleStoryCardBtn) titleStoryCardBtn.addEventListener('click', tryLaunchStoryModeFromTitle);
+  if (titleGalleryCardBtn) titleGalleryCardBtn.addEventListener('click', tryLaunchGalleryFromTitle);
+
+  function refreshTitleCardLabels() {
+    const mobile = isMobileUIEnabled();
+    if (titleStoryCardBtn) {
+      titleStoryCardBtn.textContent = mobile ? 'ストーリーモード' : '展開を見る';
+    }
+    if (titleGalleryCardBtn) {
+      titleGalleryCardBtn.textContent = mobile ? 'ギャラリー' : 'ギャラリーを起動';
+    }
+  }
+  refreshTitleCardLabels();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', refreshTitleCardLabels);
+  }
   if (loadWorldBtn) loadWorldBtn.addEventListener('click', () => {
     if (appState !== 'title') return;
     setTitleStatus('JSONファイルを選択してください');
@@ -4476,6 +5141,7 @@
   if (bgmToggleBtn) bgmToggleBtn.addEventListener('click', toggleBGM);
   if (overlaySaveBtn) overlaySaveBtn.addEventListener('click', () => {
     if (saveWorldToSlot()) {
+      exportWorldAsJson();
       hideConfirmOverlay();
       completeReturnToTitle();
     }
@@ -4617,7 +5283,7 @@
           container.style.display = 'flex';
           container.style.flexDirection = 'column';
           container.style.gap = '8px';
-          container.style.color = '#111';
+          container.style.color = 'var(--ui-text)';
           const prompt = document.createElement('p');
           prompt.style.margin = '0 0 4px';
           prompt.textContent = config.prompt;
@@ -4779,7 +5445,7 @@
           if (!cityCandidates.length) {
             const empty = document.createElement('div');
             empty.textContent = '対象都市がありません';
-            empty.style.color = '#0d0f14';
+            empty.style.color = 'var(--ui-text-dim)';
             cityWrap.appendChild(empty);
           }
           section.appendChild(cityWrap);
@@ -5290,7 +5956,10 @@ function renderHorsecarLineList() {
           container.style.display = 'flex';
           container.style.flexDirection = 'column';
           container.style.gap = '12px';
-          container.style.color = '#111';
+          container.style.maxHeight = 'min(80vh, 640px)';
+          container.style.overflowY = 'auto';
+          container.style.paddingRight = '4px';
+          container.style.color = 'var(--ui-text)';
           const heading = document.createElement('strong');
           heading.textContent = '鉄道ダイヤの制定';
           container.appendChild(heading);
@@ -5300,6 +5969,11 @@ function renderHorsecarLineList() {
           intro.style.opacity = '0.8';
           container.appendChild(intro);
           const scheduleListWrapper = document.createElement('div');
+          scheduleListWrapper.style.maxHeight = '320px';
+          scheduleListWrapper.style.overflowY = 'auto';
+          scheduleListWrapper.style.paddingRight = '4px';
+          scheduleListWrapper.style.maxHeight = '320px';
+          scheduleListWrapper.style.overflowY = 'auto';
           const refreshSchedules = () => {
             scheduleListWrapper.innerHTML = '';
             scheduleListWrapper.appendChild(buildRailScheduleList(refreshSchedules));
@@ -5473,10 +6147,22 @@ function renderHorsecarLineList() {
               updateStops();
               return;
             }
-            const originId = getLineEndpointId(line, 'start');
-            const destinationId = getLineEndpointId(line, 'end');
-            routeSummary.textContent = `経路: ${getCityDisplayName(originId)} → ${getCityDisplayName(destinationId)}`;
-            createBtn.disabled = false;
+            const originId = ensureLineEndpointCity(line, 'start') || getLineEndpointId(line, 'start');
+            const destinationId = ensureLineEndpointCity(line, 'end') || getLineEndpointId(line, 'end');
+            const stops = stopControls
+              .filter(control => control.checkbox.checked)
+              .map(control => control.cityId);
+            let displayOrigin = originId;
+            let displayDestination = destinationId;
+            if ((!originId || !destinationId || originId === destinationId) && stops.length) {
+              if (!displayOrigin) displayOrigin = stops[0];
+              if (!displayDestination) displayDestination = stops[stops.length - 1];
+            }
+            const validRoute = displayOrigin && displayDestination && displayOrigin !== displayDestination;
+            routeSummary.textContent = validRoute
+              ? `経路: ${getCityDisplayName(displayOrigin)} → ${getCityDisplayName(displayDestination)}`
+              : '経路: 有効な起点・終点を指定してください';
+            createBtn.disabled = !validRoute;
             updateStops();
           };
           const refreshRailScheduleState = () => {
@@ -5492,19 +6178,27 @@ function renderHorsecarLineList() {
               if (tileInfoEl) tileInfoEl.textContent = '先に路線を選択してください';
               return;
             }
-            const originId = ensureLineEndpointCity(line, 'start');
-            const destinationId = ensureLineEndpointCity(line, 'end');
-            updateRouteDisplay();
-            if (!originId || !destinationId || originId === destinationId) {
-              if (tileInfoEl) tileInfoEl.textContent = 'この路線は有効な起点・終点を持っていません';
-              return;
-            }
             const stops = stopControls
               .filter(control => control.checkbox.checked)
               .map(control => ({
                 cityId: control.cityId,
                 passingLoop: !!control.loopEnabled,
               }));
+            let originId = ensureLineEndpointCity(line, 'start');
+            let destinationId = ensureLineEndpointCity(line, 'end');
+
+            if ((!originId || !destinationId || originId === destinationId) && stops.length) {
+              if (!originId) originId = stops[0].cityId;
+              if (!destinationId) destinationId = stops[stops.length - 1].cityId;
+            }
+
+            if (!originId || !destinationId || originId === destinationId) {
+              if (tileInfoEl) {
+                tileInfoEl.textContent = '起点・終点を特定できません。中間駅を選ぶか、地図で都市を指定してください。';
+              }
+              return;
+            }
+            updateRouteDisplay();
             const schedule = addRailSchedule({
               originId,
               destinationId,
@@ -5724,7 +6418,7 @@ function renderHorsecarLineList() {
             container.style.display = 'flex';
             container.style.flexDirection = 'column';
             container.style.gap = '10px';
-            container.style.color = '#111';
+            container.style.color = 'var(--ui-text)';
             const info = document.createElement('div');
             info.textContent = '地図上でクリックして路線を引き、分岐は既存のノードをタップしてください。';
             info.style.fontSize = '12px';
@@ -6449,6 +7143,9 @@ function renderHorsecarLineList() {
           if (maybeTriggerDivisionEra(state)) {
             return;
           }
+          if (maybeTriggerChapter2Start(state)) {
+            return;
+          }
           if (maybeTriggerRomanceStage(state)) {
             return;
           }
@@ -6471,6 +7168,121 @@ function renderHorsecarLineList() {
         }
 
 
+        function maybeTriggerChapter2Start(state) {
+          if (!state) return false;
+          const progress = ensureChapterProgress(state);
+          if (!progress) return false;
+          if (progress.currentChapterId) return false;
+          const nextTurn = progress.chapterMetrics?.nextChapter2Turn;
+          if (!Number.isFinite(nextTurn) || currentTurn < nextTurn) return false;
+          if (progress.chapterMetrics?.chapter2Started) return false;
+          const chapter = STORY_CHAPTERS.chapter_02;
+          if (!chapter) return false;
+          const flags = ensureChapterFlags(state, chapter.chapterId);
+          flags.startTurn = currentTurn;
+          if (progress.chapterMetrics) {
+            progress.chapterMetrics.chapter2Started = true;
+          }
+          progress.currentChapterId = chapter.chapterId;
+          storyScenarioState.storyChapter = 2;
+          console.log(`[Story] Chapter 2 "${chapter.title}" begins at turn ${currentTurn}`);
+          recordStoryAction('story', 'chapter2_start', { storyLabel: chapter.title });
+          return true;
+        }
+
+        function showChapter2NewsEvent(state, chapter, flags, progress) {
+          if (!chapter || !flags || flags.event1Shown) return false;
+          const summary = '王国各地で、王家の判断を疑問視する声が増えている。';
+          publishStoryNews(summary);
+          adjustNationStability(-2);
+          adjustPlayerSupport('nobility', -1);
+          adjustPlayerSupport('citizens', -2);
+          if (progress && progress.chapterMetrics) {
+            progress.chapterMetrics.uncertainty = (progress.chapterMetrics.uncertainty || 0) + 2;
+          }
+          flags.event1Shown = true;
+          recordStoryAction('story', 'chapter2_event1', { storyLabel: summary });
+          applyChapter2FactionFlags(state, chapter, flags);
+          return true;
+        }
+
+        function applyChapter2FactionFlags(state, chapter, flags) {
+          if (!chapter || !flags || flags.factionFlagsSet) return;
+          flags.factionFlagsSet = true;
+          flags.factionTension = true;
+          flags.civilUnrestSeed = true;
+          storyFlags.factionTension = true;
+          storyFlags.civilUnrestSeed = true;
+          recordStoryAction('story', 'chapter2_faction', { storyLabel: '派閥の緊張が高まった。' });
+          console.log('[Story] Chapter 2 faction tension flags activated.');
+        }
+
+        function showChapter2SecondPrinceEvent(state, chapter, flags) {
+          if (!chapter || !flags || flags.event3Shown) return false;
+          const overlayId = 'chapter2-second-prince';
+          const paragraphs = [
+            '王都の外側から、秩序回復には軍の手が必要という声が聞こえ始めた。',
+            '第二皇子勢力の武人たちが、強い権威による制御を主張し始めている。',
+          ];
+          const summary = '武による安定を掲げる動きが、皇都に緊張を呼ぶ。';
+          const shown = showStoryNarrativeOverlay({
+            id: overlayId,
+            title: '権威の重み',
+            paragraphs,
+            summary,
+            actionId: 'chapter2_second_prince',
+          });
+          if (shown) {
+            flags.event3Shown = true;
+            adjustPlayerSupport('military', 2);
+            adjustNationStability(-1);
+            recordStoryAction('story', 'chapter2_event3', { storyLabel: summary });
+          }
+          return shown;
+        }
+
+        function showChapter2ThirdPrinceObservation(state, chapter, flags) {
+          if (!chapter || !flags || flags.thirdPrinceObserving) return false;
+          const overlayId = 'chapter2-third-prince';
+          const paragraphs = [
+            'アルト皇子は遠くから情勢を測り、声が大きくなる前に聞こえない声を拾おうとしている。',
+            '直接挑発はしないが、確かにこちらを観測しているような気配がある。',
+          ];
+          const summary = '第三皇子は慎重に動きを観察している。';
+          const shown = showStoryNarrativeOverlay({
+            id: overlayId,
+            title: '観測者の視線',
+            paragraphs,
+            summary,
+            actionId: 'chapter2_third_prince',
+          });
+          if (shown) {
+            flags.thirdPrinceObserving = true;
+            storyFlags.thirdPrinceObserving = true;
+            recordStoryAction('story', 'chapter2_event4', { storyLabel: summary });
+          }
+          return shown;
+        }
+
+        function finishChapter2(state, chapter, flags, progress) {
+          if (!chapter || !flags || flags.endEventShown) return false;
+          timeControl.speed = 0;
+          updateControlButtons();
+          const summary = '王国のざわめきは静かな章を終え、次の展開に向けて空気が重くなる。';
+          publishStoryNews(summary);
+          flags.endEventShown = true;
+          flags.chapterCompletedAt = currentTurn;
+          storyScenarioState.storyChapter = 2;
+          if (progress) {
+            progress.currentChapterId = null;
+            progress.chapterMetrics.chapter2Completed = true;
+            progress.chapterMetrics.nextChapter2Turn = null;
+          }
+          console.log(`[Story] Chapter 2 "${chapter.title}" completed at turn ${currentTurn}`);
+          recordStoryAction('story', 'chapter2_end', { storyLabel: summary });
+          return true;
+        }
+
         function maybeTriggerStoryChapterEvents(state) {
           if (!state) return false;
           const progress = ensureChapterProgress(state);
@@ -6480,7 +7292,7 @@ function renderHorsecarLineList() {
           const flags = ensureChapterFlags(state, chapter.chapterId);
           if (!flags) return false;
           applyChapterPassiveEffects(state, chapter, flags, progress);
-          const startTurn = chapter.startTurn || 1;
+          const startTurn = (flags.startTurn || chapter.startTurn) || 1;
           const endTurn = chapter.endTurn || (startTurn + 11);
           if (currentTurn === startTurn && !flags.introShown) {
             showChapterIntroOverlay(state, chapter, flags, progress);
@@ -6510,6 +7322,21 @@ function renderHorsecarLineList() {
           if (currentTurn === endTurn && !flags.endEventShown) {
             showChapterEndOverlay(state, chapter, flags, progress);
             return true;
+          }
+          if (chapter.chapterId === 'chapter_02') {
+            const relative = currentTurn - startTurn;
+            if (showChapter2NewsEvent(state, chapter, flags, progress)) {
+              return true;
+            }
+            if (relative >= 1 && showChapter2SecondPrinceEvent(state, chapter, flags)) {
+              return true;
+            }
+            if (relative >= 2 && showChapter2ThirdPrinceObservation(state, chapter, flags)) {
+              return true;
+            }
+            if (relative >= 3 && finishChapter2(state, chapter, flags, progress)) {
+              return true;
+            }
           }
           return false;
         }
@@ -6551,7 +7378,7 @@ function renderHorsecarLineList() {
           container.style.flexDirection = 'column';
           container.style.gap = '10px';
           const paragraph = document.createElement('p');
-          paragraph.textContent = chapter.brokenEngagementText || '';
+          paragraph.textContent = chapter.brokenEngagementText || '婚約破棄の報が伝わり、宮廷の空気が冷えている。';
           paragraph.style.fontSize = '13px';
           container.appendChild(paragraph);
           timeControl.speed = 0;
@@ -6592,7 +7419,10 @@ function renderHorsecarLineList() {
           const overlayId = `chapter-world-${chapter.chapterId}`;
           if (overlayStack.find(entry => entry.id === overlayId)) return false;
           const textPool = Array.isArray(chapter.worldReactionTexts) ? chapter.worldReactionTexts : [];
-          const message = textPool[Math.floor(Math.random() * textPool.length)] || chapter.worldReactionTexts[0] || '';
+          const fallback = chapter.worldReactionTexts && typeof chapter.worldReactionTexts[0] === 'string'
+            ? chapter.worldReactionTexts[0]
+            : '王国各地の視線が、王命の行方を追っている。';
+          const message = textPool.length ? textPool[Math.floor(Math.random() * textPool.length)] : fallback;
           const container = document.createElement('div');
           container.style.display = 'flex';
           container.style.flexDirection = 'column';
@@ -6628,7 +7458,7 @@ function renderHorsecarLineList() {
           container.style.flexDirection = 'column';
           container.style.gap = '10px';
           const paragraph = document.createElement('p');
-          paragraph.textContent = chapter.thirdPrinceText || '';
+          paragraph.textContent = chapter.thirdPrinceText || '第三皇子は静かに状況を見つめている。';
           paragraph.style.fontSize = '13px';
           container.appendChild(paragraph);
           const list = document.createElement('div');
@@ -6784,12 +7614,20 @@ function renderHorsecarLineList() {
             buttons: [{ label: '次へ', action: () => closeStoryOverlay(overlayId) }],
             animate: true,
           });
-          flags.endEventShown = true;
-          flags.chapterCompletedAt = currentTurn;
-          if (progress) {
-            progress.currentChapterId = null;
+        flags.endEventShown = true;
+        flags.chapterCompletedAt = currentTurn;
+        if (progress) {
+          progress.currentChapterId = null;
+          if (chapter.chapterId === 'chapter_01') {
+            const offset = randomIntRange(3, 6);
+            const target = currentTurn + offset;
+            if (progress.chapterMetrics) {
+              progress.chapterMetrics.nextChapter2Turn = target;
+            }
+            console.log(`[Story] Chapter 2 scheduled for turn ${target} (delay ${offset})`);
           }
-          recordStoryAction('story', 'chapter1_end', { storyLabel: chapter.endText });
+        }
+        recordStoryAction('story', 'chapter1_end', { storyLabel: chapter.endText });
           return true;
         }
 
@@ -6915,7 +7753,7 @@ function renderHorsecarLineList() {
           container.style.display = 'flex';
           container.style.flexDirection = 'column';
           container.style.gap = '8px';
-          container.style.color = '#111';
+          container.style.color = 'var(--ui-text)';
           const description = document.createElement('div');
           description.textContent = '選択肢から候補地を確認し、開拓を進める場所を決定してください。';
           description.style.fontSize = '12px';
@@ -6933,7 +7771,7 @@ function renderHorsecarLineList() {
           if (!tiles.length) {
             const empty = document.createElement('div');
             empty.textContent = '未開の地は見つかりませんでした';
-            empty.style.color = '#111';
+            empty.style.color = 'var(--ui-text-dim)';
             tileList.appendChild(empty);
           } else {
           tiles.forEach(tile => {
@@ -6945,10 +7783,10 @@ function renderHorsecarLineList() {
             row.style.background = 'rgba(0,0,0,0.05)';
             row.style.borderRadius = '6px';
             row.style.padding = '6px 8px';
-            row.style.color = '#111';
+            row.style.color = 'var(--ui-text)';
             const info = document.createElement('span');
             info.style.fontSize = '12px';
-            info.style.color = '#0f1116';
+            info.style.color = 'var(--ui-text-dim)';
             info.textContent = formatFrontierTile(tile);
             const btn = document.createElement('button');
             btn.className = 'btn';
@@ -7599,21 +8437,6 @@ function renderHorsecarLineList() {
     }
   }
 
-  function ensureExtraMobileSystemActions() {
-    if (!mobileSystemActionsEl) return;
-    MOBILE_SYSTEM_EXTRA_ACTIONS.forEach(entry => {
-      if (!entry || !entry.key) return;
-      if (mobileSystemActionsEl.querySelector(`[data-mobile-system="${entry.key}"]`)) return;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.dataset.mobileSystem = entry.key;
-      btn.classList.add('mobile-system-btn');
-      btn.textContent = entry.label || entry.key;
-      if (entry.className) btn.className = entry.className;
-      mobileSystemActionsEl.appendChild(btn);
-    });
-  }
-
   function updateMobileContextHeading() {
     if (!mobileContextTitleEl || !mobileContextSubtitleEl) return;
     mobileContextTitleEl.textContent = MOBILE_MODE_LABELS[mobileActiveMode] || '世界';
@@ -7864,7 +8687,6 @@ function renderHorsecarLineList() {
     }
     mobileSystemActionsEl = document.getElementById('mobile-system-actions');
     if (mobileSystemActionsEl) {
-      ensureExtraMobileSystemActions();
       mobileSystemActionButtons.clear();
       mobileSystemActionsEl.querySelectorAll('[data-mobile-system]').forEach(btn => {
         btn.addEventListener('click', () => handleTouchAction(btn.dataset.mobileSystem));
@@ -8144,6 +8966,9 @@ function renderHorsecarLineList() {
     container.style.display = 'flex';
     container.style.flexDirection = 'column';
     container.style.gap = '12px';
+    container.style.maxHeight = 'min(78vh, 620px)';
+    container.style.overflowY = 'auto';
+    container.style.paddingRight = '2px';
 
     const outline = document.createElement('div');
     outline.textContent = '国土を守る部隊を配備し、地方の師団を編成してください。';
@@ -8730,6 +9555,7 @@ function renderHorsecarLineList() {
       while (storyOverlayRoot.firstChild) {
         storyOverlayRoot.removeChild(storyOverlayRoot.firstChild);
       }
+      updateStoryOverlayBackdrop();
     }
     render();
   }
@@ -9440,11 +10266,20 @@ function renderHorsecarLineList() {
           storyFlags.successionShown = !!data.story.flags.successionShown;
           storyFlags.firstCityInspect = !!data.story.flags.firstCityInspect;
           storyFlags.firstCapitalSet = !!data.story.flags.firstCapitalSet;
+          storyFlags.factionTension = !!data.story.flags.factionTension;
+          storyFlags.civilUnrestSeed = !!data.story.flags.civilUnrestSeed;
+          storyFlags.thirdPrinceObserving = !!data.story.flags.thirdPrinceObserving;
         } else {
           storyFlags.introShown = false;
           storyFlags.successionShown = false;
           storyFlags.firstCityInspect = false;
           storyFlags.firstCapitalSet = false;
+          storyFlags.factionTension = false;
+          storyFlags.civilUnrestSeed = false;
+          storyFlags.thirdPrinceObserving = false;
+          storyFlags.factionTension = false;
+          storyFlags.civilUnrestSeed = false;
+          storyFlags.thirdPrinceObserving = false;
         }
       } else {
         isStoryMode = false;
@@ -9456,6 +10291,9 @@ function renderHorsecarLineList() {
         storyFlags.successionShown = false;
         storyFlags.firstCityInspect = false;
         storyFlags.firstCapitalSet = false;
+        storyFlags.factionTension = false;
+        storyFlags.civilUnrestSeed = false;
+        storyFlags.thirdPrinceObserving = false;
         initCharacters();
       }
       restoreStoryScenarioState(data.story ? data.story.storyScenario : null);
@@ -9915,9 +10753,9 @@ let railMaintenanceLastTurn = 0;
     const LAST_SAVE_SLOT_KEY = 'world_save_last_slot';
     const DEFAULT_SAVE_SLOT = 1;
     const SAVE_KEY = getSlotKey(DEFAULT_SAVE_SLOT);
-    // デフォルトの王決定ターン（3年4月を想定、ターン0=1年1月）
+    // デフォルトの王決定ターン（24ターン=2年を想定、ターン0=1年1月）
     if (typeof successionTurnPlanned !== 'number' || !Number.isFinite(successionTurnPlanned)) {
-      successionTurnPlanned = 40;
+      successionTurnPlanned = 24;
     }
 
   function sumSupportValues(support) {
@@ -10234,6 +11072,7 @@ let railMaintenanceLastTurn = 0;
     }
     const headline = `即位直後: ${getCandidateName(successionResult.winnerId)} の第一声`;
     showNewspaperHeadline(headline, summary);
+    successionTurnPlanned = null;
     successionAftermathHandled = true;
     if (successionResult.winnerId === 'player') {
       offerNPCProposals();
@@ -10242,9 +11081,9 @@ let railMaintenanceLastTurn = 0;
 
     function handleFirstCapitalSet(city) {
       showCapitalDirectionOverlay(city);
-      // 王決定予定ターンが未設定なら、このタイミングから30ターン後を目安にする
+      // 王決定予定ターンが未設定なら、このタイミングから24ターン後を目安にする
       if (successionTurnPlanned == null) {
-        successionTurnPlanned = currentTurn + 30;
+        successionTurnPlanned = currentTurn + 24;
       }
       if (!successionResult) {
         computeSuccessionResult();
@@ -10488,6 +11327,12 @@ let railMaintenanceLastTurn = 0;
   }
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function randomIntRange(min, max) {
+    const low = Math.ceil(min);
+    const high = Math.floor(max);
+    if (high < low) return min;
+    return low + Math.floor(Math.random() * (high - low + 1));
+  }
 
   // value-noise (超軽量)
   function makeValueNoise(rand) {
@@ -10780,20 +11625,27 @@ let railMaintenanceLastTurn = 0;
     return { kind:null, dir:null, dz:0 };
   }
 
-  // タイル色
-  function baseFill(t) {
-    const z = t.h;
-    switch (t.base) {
-      case BASE.SEA:      return `rgb(${20+z},${60+z*2},${120+z*4})`;
-      case BASE.LAKE:     return `rgb(${30+z},${90+z*2},${150+z*4})`;
-      case BASE.GRASS:    return `rgb(${70+z*5},${150+z*6},${85+z*4})`;
-      case BASE.FOREST:   return `rgb(${32+z*3},${95+z*4},${40+z*3})`;
-      case BASE.MOUNTAIN: return `rgb(${110+z*5},${110+z*5},${120+z*5})`;
-      default:            return `rgb(80,110,80)`;
+// タイル色
+  function computeTileGrayscale(base, height = 0, offset = 0) {
+    const z = Number.isFinite(height) ? Math.max(0, height) : 0;
+    const core = clamp(70 + z * 1.6, 60, 230);
+    let modifier = 0;
+    switch (base) {
+      case BASE.SEA: modifier = -30; break;
+      case BASE.LAKE: modifier = -25; break;
+      case BASE.GRASS: modifier = -10; break;
+      case BASE.FOREST: modifier = -15; break;
+      case BASE.MOUNTAIN: modifier = 20; break;
+      default: modifier = -5;
     }
+    const tone = clamp(core + modifier + offset, 15, 245);
+    return `rgb(${tone},${tone},${tone})`;
   }
 
-  // タイル上の簡易テクスチャ（模様）
+  function baseFill(t) {
+    return computeTileGrayscale(t.base, t.h);
+  }
+
   function drawTopPattern(sx, sy, t) {
     if (t.base === BASE.FOREST) {
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -12940,6 +13792,16 @@ function markSnow(rand) {
     let taxTotal = 0;
     let roadCount = 0;
     for(let y=0; y<H; y++) for(let x=0; x<W; x++) if(map[y][x].road) roadCount++;
+    const schedules = getRailSchedules();
+    const railCityScores = new Map();
+    schedules.forEach(schedule => {
+      const freq = Math.max(1, schedule.frequency || 1);
+      const routeCities = getScheduleCities(schedule);
+      routeCities.forEach(city => {
+        const current = railCityScores.get(city.id) || 0;
+        railCityScores.set(city.id, current + freq);
+      });
+    });
 
     for (const city of cities) {
       const stats = farmlandStats(city.x, city.y, 6);
@@ -12947,14 +13809,16 @@ function markSnow(rand) {
       const food = stats.farmland * 3 + stats.grass * 1 - city.pop * 0.01;
       const roadBonus = (tile.road ? (tile.road * 2) : 0) + stats.road * 0.2;
       const wealth = roadBonus + tile.civ * 0.2;
-      const delta = clamp(food*0.5 + wealth*0.1 - city.pop*0.005, -50, 120);
+      const railScore = railCityScores.get(city.id) || 0;
+      const railBoost = railScore > 0 ? Math.min(3, 1 + railScore * 0.35) : 0;
+      const delta = clamp(food*0.5 + wealth*0.1 - city.pop*0.005 + railBoost, -50, 120);
       city.food = food;
       city.wealth = wealth;
       city.prod = stats.grass * 0.2 + stats.road * 0.5;
       city.pop = Math.max(150, city.pop + delta);
       city.lastDelta = delta;
-      city.prosperity = clamp(city.prosperity + wealth*0.02 - 0.05, 0.2, 8);
-      city.stability = clamp(city.stability + (food > 0 ? 0.6 : -1) + (city.prosperity-2)*0.2, 15, 120);
+      city.prosperity = clamp(city.prosperity + wealth*0.02 - 0.05 + railBoost * 0.02, 0.2, 8);
+      city.stability = clamp(city.stability + (food > 0 ? 0.6 : -1) + (city.prosperity-2)*0.2 + railBoost * 0.08, 15, 120);
       city.military = clamp(city.military + roadBonus*0.4 + city.defense*0.3 - 0.5, 20, 260);
       city.megacity = city.megacity || city.pop > 11000 || (city.kind === CITY.CAPITAL && city.pop > 8500);
       
@@ -12965,7 +13829,6 @@ function markSnow(rand) {
     
     globalTax = taxTotal;
     globalMaintenance = roadCount * 0.8;
-    const schedules = getRailSchedules();
     let railRevenue = 0;
     let railMaintenanceCost = 0;
     let passengerFlowTotal = 0;
@@ -13048,7 +13911,7 @@ function markSnow(rand) {
   // --- 描画 ---
   function clear() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = '#07090c';
+    ctx.fillStyle = '#030305';
     ctx.fillRect(0,0,canvas.width,canvas.height);
   }
 

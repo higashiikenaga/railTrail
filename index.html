@@ -54,12 +54,22 @@
   <div id="title-ui">
     <h1>railTrail</h1>
     <p>新しい世界を生成するか、セーブデータをロードしてください</p>
-    <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+    <div class="title-action-row">
       <button id="btn-new-world" class="btn large">新しい世界を生成</button>
       <button id="btn-load-world" class="btn large">JSONをファイル選択</button>
       <button id="btn-bgm-toggle" class="btn large">BGM 再生</button>
-      <button id="btn-story-mode" class="btn large">ストーリーモード</button>
-      <button id="btn-gallery" class="btn large">ギャラリー</button>
+    </div>
+    <div id="title-splash-grid">
+      <div class="title-card">
+        <h3>ストーリーモード</h3>
+        <p>最新のエピソードを2D新聞風のウィンドウで確認し、王命を手に入れるまでの序章を体験できます。</p>
+        <button id="title-story-card-btn" class="btn large title-card-btn">展開を見る</button>
+      </div>
+      <div class="title-card">
+        <h3>ギャラリー</h3>
+        <p>Beta2.0のOPや過去のアニメーションを横断再生。新旧の演出をその場で試せます。</p>
+        <button id="title-gallery-card-btn" class="btn large title-card-btn">ギャラリーを起動</button>
+      </div>
     </div>
     <div id="title-status"></div>
   </div>
@@ -113,11 +123,6 @@
     </div>
     <div id="mobile-news-ticker" class="mobile-news-ticker">王令新聞・ストーリー</div>
     <div id="mobile-context-actions"></div>
-    <div id="mobile-system-actions">
-      <button type="button" data-mobile-system="save-world" class="btn mobile-system-btn">保存</button>
-      <button type="button" data-mobile-system="load-world" class="btn mobile-system-btn">読み込み</button>
-      <button type="button" data-mobile-system="back-title" class="btn mobile-system-btn">タイトルへ</button>
-    </div>
     <div id="mobile-info-stack">
       <div id="mobile-hud-stats-mirror" class="mobile-info-block"></div>
       <div id="mobile-info-mirror" class="mobile-info-block"></div>
